@@ -100,7 +100,7 @@ export const SHADOW_BONES: readonly (readonly [number, number])[] = [
   [J.indexProx, J.middleProx],
   [J.middleProx, J.ringProx],
   [J.ringProx, J.pinkyProx],
-  [J.thumbMeta, J.indexProx],
+  // (the thumb-index web is part of the palm contour, not a capsule)
   // fingers
   [J.indexProx, J.indexInter],
   [J.indexInter, J.indexDist],

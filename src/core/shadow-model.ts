@@ -37,7 +37,12 @@ export interface Capsule2D {
   ay: number;
   bx: number;
   by: number;
+  /** Radius at a (and at b unless `rb` is set): tapered capsules. */
   r: number;
+  /** Radius at b (defaults to r). */
+  rb?: number;
+  /** Shadow strength at b relative to a (forearm fades out), default 1. */
+  fadeB?: number;
   /** Edge softness (stage units). */
   soft: number;
   /** Index of the actor that owns this capsule. */
@@ -47,7 +52,11 @@ export interface Capsule2D {
 }
 
 export const MAX_CAPSULES = 96;
-export const PALM_POINTS = PALM_POLYGON.length;
+/** Palm contour points (wrist sides, thumb base, web, knuckles, pinky edge). */
+export const PALM_POINTS = 10;
+void PALM_POLYGON;
+/** Physical flame radius (a candle-sized flame) used for the penumbra. */
+export const FLAME_RADIUS = 0.005;
 
 export type ActorKind = 'hand' | 'rod';
 
@@ -223,12 +232,18 @@ export class ShadowModel {
     createActor('rod', 'left'),
     createActor('rod', 'right'),
   ];
-  flameRadius = 0.02;
+  flameRadius = FLAME_RADIUS;
   /** Viewer head & right axis: the forearm runs from the wrist toward the shoulder. */
   readonly head = new V3(0, 1.2, 0);
   readonly right = new V3(1, 0, 0);
   /** Magnification of the hand at its comfortable distance (from calibration). */
   nominalPalmShadow = 0.2;
+  /**
+   * Light-distance magnification of a comfortably held hand. `sizeRatio` is the
+   * hand's mean magnification over this: it depends only on how close the hand
+   * is to the lantern (never on how the hand is turned), which is the mechanic.
+   */
+  nominalMagnification = 2.5;
 
   private readonly pa = createProjected();
   private readonly pb = createProjected();
@@ -236,12 +251,21 @@ export class ShadowModel {
   private readonly tmpA = new V3();
   private readonly tmpB = new V3();
   private readonly tmpC = new V3();
+  private readonly palm3: V3[] = [];
+  private readonly palmP: Projected[] = [];
+  private readonly across = new V3();
+  /** Mean shadow magnification of the dominant visible hand (drives the penumbra). */
+  penumbra = 0.01;
 
   constructor() {
     for (let i = 0; i < MAX_CAPSULES; i++) {
-      this.capsules.push({ ax: 0, ay: 0, bx: 0, by: 0, r: 0, soft: 0, actor: 0 });
+      this.capsules.push({ ax: 0, ay: 0, bx: 0, by: 0, r: 0, rb: 0, fadeB: 1, soft: 0, actor: 0 });
     }
     for (let i = 0; i < 25; i++) this.projectedJoints.push(createProjected());
+    for (let i = 0; i < PALM_POINTS; i++) {
+      this.palm3.push(new V3());
+      this.palmP.push(createProjected());
+    }
   }
 
   private pushCapsule(
@@ -258,9 +282,12 @@ export class ShadowModel {
     c.ay = a.t;
     c.bx = b.s;
     c.by = b.t;
-    const m = (a.magnification + b.magnification) * 0.5;
-    c.r = (Math.max(ra, rb) * m) / stage.height;
-    c.soft = penumbraWidth(m, stage, this.flameRadius);
+    // Each end keeps its own (magnified) radius: fingers taper to round tips.
+    c.r = (ra * a.magnification) / stage.height;
+    c.rb = (rb * b.magnification) / stage.height;
+    c.fadeB = 1;
+    // Edge anti-aliasing only; the penumbra is a blur pass over the whole hand.
+    c.soft = 0.003;
     c.actor = actor;
     c.forearm = false;
   }
@@ -298,6 +325,9 @@ export class ShadowModel {
       }
       this.buildRod(rod, 2 + r, light, stage, dt);
     }
+    let pen = 0;
+    for (const a of this.actors) if (a.present) pen = Math.max(pen, a.palmSoft);
+    this.penumbra = pen || 0.01;
   }
 
   private markAbsent(actor: Actor): void {
@@ -318,10 +348,11 @@ export class ShadowModel {
     let maxT = -Infinity;
     for (let i = actor.capsuleStart; i < actor.capsuleStart + actor.capsuleCount; i++) {
       const c = this.capsules[i];
-      minS = Math.min(minS, c.ax - c.r, c.bx - c.r);
-      maxS = Math.max(maxS, c.ax + c.r, c.bx + c.r);
-      minT = Math.min(minT, c.ay - c.r, c.by - c.r);
-      maxT = Math.max(maxT, c.ay + c.r, c.by + c.r);
+      const rb = c.rb ?? c.r;
+      minS = Math.min(minS, c.ax - c.r, c.bx - rb);
+      maxS = Math.max(maxS, c.ax + c.r, c.bx + rb);
+      minT = Math.min(minT, c.ay - c.r, c.by - rb);
+      maxT = Math.max(maxT, c.ay + c.r, c.by + rb);
     }
     actor.minS = minS;
     actor.maxS = maxS;
@@ -358,7 +389,7 @@ export class ShadowModel {
     }
     const start = this.capsuleCount;
     for (const [a, b] of SHADOW_BONES) {
-      this.pushCapsule(pj[a], pj[b], hand.radii[a], hand.radii[b], stage as StageFrame, index);
+      this.pushCapsule(pj[a], pj[b], hand.radii[a] * 0.95, hand.radii[b] * 0.95, stage as StageFrame, index);
     }
     // Forearm: from the wrist toward the elbow, i.e. toward the same-side
     // shoulder (blended a little with the hand's own axis), 19 cm long.
@@ -378,8 +409,12 @@ export class ShadowModel {
     normalize(this.tmpA, this.tmpA);
     addScaled(this.tmpB, w, this.tmpA, 0.19);
     projectToStage(this.tmpB, light, stage, this.pa);
-    this.pushCapsule(pj[J.wrist], this.pa, 0.026, 0.03, stage as StageFrame, index);
-    if (this.capsuleCount > start) this.capsules[this.capsuleCount - 1].forearm = true;
+    this.pushCapsule(pj[J.wrist], this.pa, 0.027, 0.034, stage as StageFrame, index);
+    if (this.capsuleCount > start) {
+      const fa = this.capsules[this.capsuleCount - 1];
+      fa.forearm = true;
+      fa.fadeB = 0.12; // the arm's shadow fades out toward the elbow
+    }
     actor.capsuleCount = this.capsuleCount - start;
     // Hand-only bounds (gameplay uses these; the forearm is just for looks).
     let h0 = Infinity;
@@ -399,15 +434,42 @@ export class ShadowModel {
     actor.handMinT = v0;
     actor.handMaxT = v1;
 
-    // Palm polygon
+    // Palm contour (3D, then projected): wrist sides, thumb base, the web
+    // between thumb and index, the knuckle line and the pinky edge.
+    const jt = hand.joints;
+    const pts = this.palm3;
+    sub(this.across, jt[J.indexProx], jt[J.pinkyProx]);
+    normalize(this.across, this.across);
+    addScaled(pts[0], jt[J.wrist], this.across, -0.021); // wrist, pinky side
+    addScaled(pts[1], jt[J.wrist], this.across, 0.02); // wrist, thumb side
+    pts[2].copy(jt[J.thumbMeta]);
+    // web: partway from the thumb's knuckle toward the index knuckle, tucked in
+    pts[3].set(
+      jt[J.thumbProx].x + (jt[J.indexProx].x - jt[J.thumbProx].x) * 0.42 + (jt[J.thumbMeta].x - jt[J.thumbProx].x) * 0.28,
+      jt[J.thumbProx].y + (jt[J.indexProx].y - jt[J.thumbProx].y) * 0.42 + (jt[J.thumbMeta].y - jt[J.thumbProx].y) * 0.28,
+      jt[J.thumbProx].z + (jt[J.indexProx].z - jt[J.thumbProx].z) * 0.42 + (jt[J.thumbMeta].z - jt[J.thumbProx].z) * 0.28,
+    );
+    pts[4].copy(jt[J.indexProx]);
+    pts[5].copy(jt[J.middleProx]);
+    pts[6].copy(jt[J.ringProx]);
+    pts[7].copy(jt[J.pinkyProx]);
+    addScaled(pts[8], jt[J.pinkyMeta], this.across, -0.008);
+    // centre of the palm (fan origin)
+    pts[9].set(
+      (jt[J.wrist].x + jt[J.middleProx].x) * 0.5,
+      (jt[J.wrist].y + jt[J.middleProx].y) * 0.5,
+      (jt[J.wrist].z + jt[J.middleProx].z) * 0.5,
+    );
     actor.palmValid = true;
     for (let k = 0; k < PALM_POINTS; k++) {
-      const p = pj[PALM_POLYGON[k]];
+      const p = projectToStage(pts[k], light, stage, this.palmP[k]);
       if (!p.valid) actor.palmValid = false;
       actor.palm[k * 2] = p.s;
       actor.palm[k * 2 + 1] = p.t;
     }
-    actor.palmSoft = penumbraWidth(pj[J.middleMeta].magnification, stage, this.flameRadius);
+    let magSum0 = 0;
+    for (let i = 0; i < 25; i++) magSum0 += pj[i].valid ? pj[i].magnification : 0;
+    actor.palmSoft = penumbraWidth(magSum0 / 25, stage, this.flameRadius);
 
     this.finishBounds(actor);
     this.handCentroid(actor);
@@ -424,12 +486,15 @@ export class ShadowModel {
     actor.knuckleT = pj[J.middleProx].t;
     actor.pose = classify ? actor.classifier.update(actor.features, dt) : 'none';
 
-    // Shadow size relative to nominal: projected palm length vs comfortable.
-    const palmShadow = Math.hypot(
-      pj[J.middleProx].s - pj[J.wrist].s,
-      pj[J.middleProx].t - pj[J.wrist].t,
-    );
-    actor.sizeRatio = palmShadow / Math.max(0.02, this.nominalPalmShadow);
+    // Shadow size relative to nominal (orientation independent).
+    let magSum = 0;
+    let magN = 0;
+    for (let i = 0; i < 25; i++) {
+      if (!pj[i].valid) continue;
+      magSum += pj[i].magnification;
+      magN++;
+    }
+    actor.sizeRatio = magN ? magSum / magN / Math.max(1.01, this.nominalMagnification) : 1;
 
     const up = pj[J.indexTip];
     const mid = pj[J.middleTip];
@@ -499,6 +564,7 @@ export class ShadowModel {
     }
     actor.capsuleCount = this.capsuleCount - start;
     actor.palmValid = false;
+    actor.palmSoft = penumbraWidth(this.pa.valid ? this.pa.magnification : 2, stage, this.flameRadius);
     if (actor.capsuleCount < 3) {
       this.markAbsent(actor);
       return;
@@ -529,8 +595,9 @@ export class ShadowModel {
     actor.mouthT = (upperT + lowerT) * 0.5;
     actor.tipS = upperS;
     actor.tipT = upperT;
-    const h = actor.maxT - actor.minT;
-    actor.sizeRatio = h / (0.22 * PUPPET_SCALE);
+    // the puppet body's magnification (orientation independent)
+    projectToStage(rod.position, light, stage, this.pa);
+    actor.sizeRatio = this.pa.valid ? this.pa.magnification / Math.max(1.01, this.nominalMagnification) : 1;
     void this.tmpC;
   }
 
@@ -549,7 +616,8 @@ export class ShadowModel {
       const len2 = dx * dx + dy * dy;
       let u = len2 > 1e-12 ? ((s - c.ax) * dx + (t - c.ay) * dy) / len2 : 0;
       u = u < 0 ? 0 : u > 1 ? 1 : u;
-      const d = Math.hypot(s - (c.ax + dx * u), t - (c.ay + dy * u)) - c.r;
+      const rr = c.r + ((c.rb ?? c.r) - c.r) * u;
+      const d = Math.hypot(s - (c.ax + dx * u), t - (c.ay + dy * u)) - rr;
       if (d < best) best = d;
     }
     return best;

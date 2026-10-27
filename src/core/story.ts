@@ -15,9 +15,10 @@ import { Capsule2D, ShadowModel, Actor } from './shadow-model.js';
 import { Rabbit, RabbitWorld } from './rabbit.js';
 import { clamp, dist2, mulberry32, pointSegmentDistance } from './math.js';
 import { PoseId } from './hand-features.js';
+import { Wolf, WolfState } from './wolf.js';
 
-export type SceneId = 'intro' | 'menu' | 'croc' | 'bridge';
-export type TaleId = 'croc' | 'bridge';
+export type SceneId = 'intro' | 'menu' | 'croc' | 'bridge' | 'wolf' | 'finale';
+export type TaleId = 'croc' | 'bridge' | 'wolf';
 
 export type SoundEvent =
   | 'ignite'
@@ -34,7 +35,12 @@ export type SoundEvent =
   | 'select'
   | 'taleComplete'
   | 'roundComplete'
-  | 'whoosh';
+  | 'whoosh'
+  | 'growl'
+  | 'whimper'
+  | 'wolfFlee'
+  | 'howl'
+  | 'bow';
 
 export interface StoryEvent {
   type: SoundEvent;
@@ -108,6 +114,12 @@ export interface StageView {
   progress: number;
   /** The burrow (home) marker for the bridge tale. */
   burrow: { visible: number; s: number; t: number };
+  /** The Moon Wolf. */
+  wolf: { visible: number; x: number; y: number; dir: number; state: WolfState; crouch: number; phase: number; fear: number };
+  /** The moon (a disc of light). */
+  moon: { visible: number; s: number; t: number; r: number; glow: number };
+  /** How big your shadow is vs. how big it needs to be (wolf tale HUD hint), 0..1+. */
+  courage: number;
 }
 
 export interface StorySettings {
@@ -134,7 +146,7 @@ export interface Progress {
 
 export function createProgress(): Progress {
   return {
-    completed: { croc: false, bridge: false },
+    completed: { croc: false, bridge: false, wolf: false },
     firefliesEaten: 0,
     crossings: 0,
     discovered: [],
@@ -166,8 +178,9 @@ function createView(): StageView {
     rabbit: { visible: 0, x: 0, y: GROUND_T, dir: 1, hopping: false, squash: 1, swimming: false, peering: false },
     fireflies,
     icons: [
-      { id: 'croc', s: -0.34, t: 0.12, r: 0.12, fill: 0, visible: 0, completed: false, label: 'The Hungry Crocodile', armed: false },
-      { id: 'bridge', s: 0.34, t: 0.12, r: 0.12, fill: 0, visible: 0, completed: false, label: "Rabbit's Bridge", armed: false },
+      { id: 'croc', s: -0.42, t: 0.12, r: 0.11, fill: 0, visible: 0, completed: false, label: 'The Hungry Crocodile', armed: false },
+      { id: 'bridge', s: 0.0, t: 0.18, r: 0.11, fill: 0, visible: 0, completed: false, label: "Rabbit's Bridge", armed: false },
+      { id: 'wolf', s: 0.42, t: 0.12, r: 0.11, fill: 0, visible: 0, completed: false, label: 'The Moon Wolf', armed: false },
     ],
     scenery,
     sceneryCount: 0,
@@ -177,6 +190,9 @@ function createView(): StageView {
     caption: '',
     progress: 0,
     burrow: { visible: 0, s: 0.62, t: GROUND_T },
+    wolf: { visible: 0, x: 1, y: GROUND_T, dir: -1, state: 'away', crouch: 0, phase: 0, fear: 0 },
+    moon: { visible: 0, s: 0.46, t: 0.3, r: 0.075, glow: 0 },
+    courage: 0,
   };
 }
 
@@ -215,6 +231,11 @@ export class Story {
   private readonly rounds = [0.13, 0.19, 0.25];
   private peerTime = 0;
   private readonly world: RabbitWorld;
+  /** Moon Wolf tale */
+  readonly wolf = new Wolf();
+  private wolfRound = 0;
+  private roundTime = 0;
+  private awayTime = 0;
   /** Debug/test hooks: last selected icon, counters. */
   readonly stats = { selections: 0, chomps: 0, eaten: 0, crossings: 0, splashes: 0, rabbitBirths: 0 };
 
@@ -261,6 +282,11 @@ export class Story {
       icon.fill = 0;
       icon.armed = false;
     }
+    if (scene !== 'wolf' && scene !== 'finale') {
+      this.view.moon.visible = 0;
+      this.view.wolf.visible = 0;
+      this.wolf.state = 'away';
+    }
     this.setScenery(scene);
     switch (scene) {
       case 'intro':
@@ -284,6 +310,30 @@ export class Story {
         this.setupRound();
         this.setBeat('cross');
         break;
+      case 'wolf':
+        this.wolfRound = 0;
+        this.roundTime = 0;
+        this.awayTime = 0;
+        this.wolf.state = 'away';
+        this.wolf.x = 1.05;
+        this.wolf.y = GROUND_T;
+        this.rabbit.place(-0.52, GROUND_T, 1);
+        this.rabbit.restTime = 1e9; // the rabbit sits tight by its burrow
+        this.view.burrow.visible = 1;
+        this.view.burrow.s = -0.64;
+        this.view.burrow.t = GROUND_T;
+        this.setBeat('moonrise');
+        break;
+      case 'finale':
+        this.rabbit.place(-0.5, GROUND_T, 1);
+        this.rabbit.restTime = 0.5;
+        this.wolf.state = 'howl';
+        this.wolf.x = 0.32;
+        this.wolf.y = GROUND_T;
+        this.wolf.dir = -1;
+        this.view.moon.visible = 1;
+        this.setBeat('bows');
+        break;
     }
   }
 
@@ -301,9 +351,14 @@ export class Story {
       c.actor = -1;
     };
     v.waterY = NaN;
-    if (scene === 'intro' || scene === 'menu') {
+    if (scene === 'intro' || scene === 'menu' || scene === 'finale') {
       // A low ground strip across the stage (theatre floor).
       seg(-0.78, GROUND_T - 0.03, 0.78, GROUND_T - 0.03, 0.03);
+    } else if (scene === 'wolf') {
+      // A moonlit meadow: ground with two soft hills.
+      seg(-0.8, GROUND_T - 0.03, 0.8, GROUND_T - 0.03, 0.03);
+      seg(-0.78, GROUND_T - 0.06, -0.52, GROUND_T - 0.06, 0.07);
+      seg(0.55, GROUND_T - 0.07, 0.8, GROUND_T - 0.07, 0.08);
     } else if (scene === 'bridge') {
       const g = this.rounds[Math.min(this.round, this.rounds.length - 1)];
       seg(-0.8, GROUND_T - 0.04, -g, GROUND_T - 0.04, 0.04);
@@ -376,7 +431,14 @@ export class Story {
       case 'bridge':
         this.updateBridge(dt, model);
         break;
+      case 'wolf':
+        this.updateWolf(dt, model);
+        break;
+      case 'finale':
+        this.updateFinale(dt);
+        break;
     }
+    this.syncWolfView();
     this.syncRabbitView();
     v.sparkle = approach(v.sparkle, 0, 1.2, dt);
   }
@@ -390,6 +452,40 @@ export class Story {
     rv.hopping = r.state === 'hop' || r.state === 'climb';
     rv.squash = r.squash;
     rv.swimming = r.state === 'swim';
+  }
+
+  private syncWolfView(): void {
+    const w = this.wolf;
+    const wv = this.view.wolf;
+    wv.x = w.x;
+    wv.y = w.y;
+    wv.dir = w.dir;
+    wv.state = w.state;
+    wv.crouch = w.crouch;
+    wv.phase = w.phase;
+    wv.fear = w.fear;
+    wv.visible = w.state === 'away' ? 0 : 1;
+  }
+
+  /** True when every tale has been completed at least once. */
+  allComplete(): boolean {
+    const c = this.progress.completed;
+    return c.croc && c.bridge && c.wolf;
+  }
+
+  /**
+   * How big the viewer's shadow is now: the largest actor's size ratio, plus a
+   * bonus when two hands (or puppets) are raised together.
+   */
+  bigness(model: ShadowModel): number {
+    let best = 0;
+    let count = 0;
+    for (const a of model.actors) {
+      if (!a.present || !this.actorInPool(a)) continue;
+      count++;
+      best = Math.max(best, a.sizeRatio);
+    }
+    return best + (count >= 2 ? 0.25 : 0);
   }
 
   private actorInPool(a: Actor): boolean {
@@ -554,8 +650,8 @@ export class Story {
     const f = this.view.fireflies.find((x) => !x.alive && x.eaten === 0);
     if (!f) return;
     const side = this.rng() < 0.5 ? -1 : 1;
-    f.x = side * (0.55 + this.rng() * 0.1);
-    f.y = -0.15 + this.rng() * 0.45;
+    f.x = side * (0.46 + this.rng() * 0.08);
+    f.y = -0.12 + this.rng() * 0.38;
     f.alive = true;
     f.glow = 0;
     f.eaten = 0;
@@ -627,8 +723,9 @@ export class Story {
             vy += ((actor.mouthT - f.y) / d) * pull;
           }
         }
-        f.x = clamp(f.x + vx * dt, -0.66, 0.66);
-        f.y = clamp(f.y + vy * dt, -0.3, 0.42);
+        // fireflies stay inside the lamplight
+        f.x = clamp(f.x + vx * dt, -0.5, 0.5);
+        f.y = clamp(f.y + vy * dt, -0.24, 0.34);
       }
       // Chomp! A firefly is caught if it is anywhere along the open jaws
       // (recorded while the mouth was open) or near where the jaws met.
@@ -676,7 +773,7 @@ export class Story {
       v.caption = 'A very happy crocodile';
       if (this.beatTime > 3.5) {
         v.warmth = 0;
-        this.requestScene('menu');
+        this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
     }
   }
@@ -729,8 +826,149 @@ export class Story {
       v.warmth = approach(v.warmth, 0.6, 2, dt);
       if (this.beatTime > 3) {
         v.warmth = 0;
-        this.requestScene('menu');
+        this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
+    }
+  }
+
+  // ------------------------------------------------------------- moon wolf
+  private readonly wolfThresholds = [1.25, 1.4, 1.55];
+
+  /** Size the shadow must reach this round (gentle mode & assist lower it). */
+  wolfThreshold(): number {
+    const base = this.wolfThresholds[Math.min(this.wolfRound, this.wolfThresholds.length - 1)];
+    const gentle = this.settings.gentle ? 0.15 : 0;
+    // Assist: after 10 s of trying, the wolf gets more timid, 0.04 per second.
+    const assist = Math.min(0.32, Math.max(0, this.roundTime - 10) * 0.04);
+    return Math.max(1.08, base - gentle - assist);
+  }
+
+  private updateWolf(dt: number, model: ShadowModel): void {
+    const v = this.view;
+    v.light = 1;
+    v.dim = 1;
+    v.croc.visible = approach(v.croc.visible, 0, 6, dt);
+    v.rabbit.visible = approach(v.rabbit.visible, 1, 5, dt);
+    v.moon.visible = approach(v.moon.visible, 1, 1.5, dt);
+    v.moon.glow = approach(v.moon.glow, this.beat === 'howl' ? 1 : 0.55, 1.5, dt);
+    this.stepRabbit(dt, false);
+    const w = this.wolf;
+    const big = this.bigness(model);
+    const need = this.wolfThreshold();
+    v.courage = clamp(big / need, 0, 1.2);
+    switch (this.beat) {
+      case 'moonrise':
+        v.caption = this.beatTime > 1 ? 'A wolf is coming...' : '';
+        if (this.beatTime > 2.2) {
+          w.enter(0.92, 0.06);
+          this.setBeat('scare');
+        }
+        break;
+      case 'scare': {
+        this.roundTime += dt;
+        const ev = w.update(dt, big >= need);
+        if (ev.growl) this.emit('growl', w.x, w.y);
+        if (ev.whimper) this.emit('whimper', w.x, w.y);
+        if (ev.fled) {
+          this.emit('wolfFlee', w.x, w.y, this.wolfRound + 1);
+          v.sparkle = 0.6;
+        }
+        if (w.state === 'away') {
+          this.awayTime += dt;
+          if (this.awayTime > 2.4) {
+            this.awayTime = 0;
+            this.wolfRound++;
+            this.roundTime = 0;
+            if (this.wolfRound >= this.wolfThresholds.length) {
+              w.befriend();
+              this.setBeat('howl');
+            } else {
+              w.enter(0.92, 0.06 + this.wolfRound * 0.015);
+            }
+          }
+        }
+        // Hints: a ghost of a big open hand, growing.
+        const struggling = this.roundTime > 6 || w.state === 'sit';
+        v.ghost.pose = 'open';
+        v.ghost.s = 0.05;
+        v.ghost.t = 0.02;
+        v.ghost.scale = 1 + 0.5 * (0.5 + 0.5 * Math.sin(this.time * 1.6));
+        v.ghost.visible = approach(v.ghost.visible, struggling && w.state !== 'flee' ? 0.32 : 0, 2, dt);
+        v.caption =
+          w.state === 'cower' || w.state === 'flee'
+            ? ''
+            : struggling
+              ? this.wolfRound === 2
+                ? 'Raise both hands, or come closer to the lantern'
+                : 'Make yourself big: bring your hand close to the lantern'
+              : '';
+        v.progress = (this.wolfRound + (w.state === 'flee' ? 1 : 0)) / this.wolfThresholds.length;
+        break;
+      }
+      case 'howl': {
+        const ev = w.update(dt, false);
+        v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
+        if (ev.howl) {
+          this.emit('howl', w.x, w.y);
+          v.sparkle = 1;
+        }
+        v.caption = w.state === 'howl' ? 'It only wanted to sing to the moon' : '';
+        if (w.state === 'howl' && this.beatTime > 7) {
+          this.progress.completed.wolf = true;
+          this.emit('taleComplete');
+          this.setBeat('end');
+        }
+        break;
+      }
+      case 'end':
+        if (this.beatTime > 1.2) this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
+        break;
+    }
+  }
+
+  /** Curtain call, once all three tales are done. */
+  finaleSeen = false;
+  private updateFinale(dt: number): void {
+    const v = this.view;
+    v.light = 1;
+    v.dim = 1;
+    v.warmth = approach(v.warmth, 0.8, 1.5, dt);
+    v.moon.visible = 1;
+    v.moon.glow = 1;
+    v.rabbit.visible = approach(v.rabbit.visible, 1, 4, dt);
+    this.stepRabbit(dt, true);
+    // fireflies drift in like stage lights
+    if (this.beatTime < dt * 1.5) {
+      for (let i = 0; i < 4; i++) {
+        const f = v.fireflies[i];
+        f.alive = true;
+        f.glow = 0;
+        f.x = -0.5 + i * 0.33;
+        f.y = 0.38;
+      }
+    }
+    for (let i = 0; i < v.fireflies.length; i++) {
+      const f = v.fireflies[i];
+      if (!f.alive) continue;
+      f.glow = Math.min(1, f.glow + dt);
+      f.x += Math.sin(this.time * 0.8 + i * 1.7) * 0.02 * dt;
+      f.y += Math.cos(this.time * 0.6 + i) * 0.015 * dt;
+    }
+    const t = this.beatTime;
+    if (t > 1.5 && t - dt <= 1.5) {
+      this.emit('bow', -0.2, GROUND_T);
+      this.rabbit.squash = 0.6;
+    }
+    if (t > 3.0 && t - dt <= 3.0) {
+      this.emit('howl', this.wolf.x, GROUND_T);
+      this.wolf.crouch = 0.9;
+    }
+    v.caption = t > 4 ? 'The End. Come back tomorrow night' : 'Thank you for watching';
+    v.sparkle = t > 1.5 && t < 6 ? 1 : v.sparkle;
+    if (t > 9) {
+      this.finaleSeen = true;
+      v.warmth = 0;
+      this.requestScene('menu');
     }
   }
 

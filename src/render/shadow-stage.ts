@@ -28,11 +28,13 @@ import {
 import { Capsule2D, PALM_POINTS, ShadowModel, CROC_ROD_PUPPET } from '../core/shadow-model.js';
 import { StageView, GROUND_T } from '../core/story.js';
 import { ghostCapsules } from '../core/ghost.js';
+import { WolfPuppet } from './wolf-puppet.js';
 import {
   CH_CUTOUT,
   CH_HOLE,
   CH_LIGHT,
   CH_SHADOW,
+  createShadowBlurMaterial,
   createCapsuleMaterial,
   createFlatMaterial,
   createGlowMaterial,
@@ -50,6 +52,8 @@ class CapsuleBatch {
   private readonly rad: Float32Array;
   private readonly segAttr: InstancedBufferAttribute;
   private readonly radAttr: InstancedBufferAttribute;
+  private readonly fade: Float32Array;
+  private readonly fadeAttr: InstancedBufferAttribute;
   count = 0;
 
   constructor(
@@ -61,13 +65,17 @@ class CapsuleBatch {
     this.geo.index = base.index;
     this.geo.setAttribute('position', base.getAttribute('position'));
     this.seg = new Float32Array(max * 4);
-    this.rad = new Float32Array(max * 3);
+    this.rad = new Float32Array(max * 4);
+    this.fade = new Float32Array(max);
     this.segAttr = new InstancedBufferAttribute(this.seg, 4);
-    this.radAttr = new InstancedBufferAttribute(this.rad, 3);
+    this.radAttr = new InstancedBufferAttribute(this.rad, 4);
+    this.fadeAttr = new InstancedBufferAttribute(this.fade, 1);
     this.segAttr.setUsage(35048); // DynamicDrawUsage
     this.radAttr.setUsage(35048);
+    this.fadeAttr.setUsage(35048);
     this.geo.setAttribute('iSeg', this.segAttr);
     this.geo.setAttribute('iRad', this.radAttr);
+    this.geo.setAttribute('iFade', this.fadeAttr);
     this.geo.instanceCount = 0;
     this.mesh = new Mesh(this.geo, createCapsuleMaterial(channel));
     this.mesh.frustumCulled = false;
@@ -84,27 +92,32 @@ class CapsuleBatch {
     this.seg[i * 4 + 1] = c.ay;
     this.seg[i * 4 + 2] = c.bx;
     this.seg[i * 4 + 3] = c.by;
-    this.rad[i * 3] = c.r * radiusScale;
-    this.rad[i * 3 + 1] = softOverride >= 0 ? softOverride : c.soft;
-    this.rad[i * 3 + 2] = strength;
+    this.rad[i * 4] = c.r * radiusScale;
+    this.rad[i * 4 + 1] = (c.rb ?? c.r) * radiusScale;
+    this.rad[i * 4 + 2] = softOverride >= 0 ? softOverride : c.soft;
+    this.rad[i * 4 + 3] = strength;
+    this.fade[i] = c.fadeB ?? 1;
   }
 
-  pushRaw(ax: number, ay: number, bx: number, by: number, r: number, soft: number, strength = 1): void {
+  pushRaw(ax: number, ay: number, bx: number, by: number, r: number, soft: number, strength = 1, rb = r): void {
     if (this.count >= this.max) return;
     const i = this.count++;
     this.seg[i * 4] = ax;
     this.seg[i * 4 + 1] = ay;
     this.seg[i * 4 + 2] = bx;
     this.seg[i * 4 + 3] = by;
-    this.rad[i * 3] = r;
-    this.rad[i * 3 + 1] = soft;
-    this.rad[i * 3 + 2] = strength;
+    this.rad[i * 4] = r;
+    this.rad[i * 4 + 1] = rb;
+    this.rad[i * 4 + 2] = soft;
+    this.rad[i * 4 + 3] = strength;
+    this.fade[i] = 1;
   }
 
   end(): void {
     this.geo.instanceCount = this.count;
     this.segAttr.needsUpdate = true;
     this.radAttr.needsUpdate = true;
+    this.fadeAttr.needsUpdate = true;
     this.mesh.visible = this.count > 0;
   }
 }
@@ -216,8 +229,10 @@ function createPalm(): Mesh {
   const attr = new BufferAttribute(pos, 3);
   attr.setUsage(35048);
   geo.setAttribute('position', attr);
+  // fan from the palm centre (last point) around the closed contour
   const idx: number[] = [];
-  for (let i = 1; i < PALM_POINTS - 1; i++) idx.push(0, i, i + 1);
+  const centre = PALM_POINTS - 1;
+  for (let i = 0; i < centre; i++) idx.push(centre, i, (i + 1) % centre);
   geo.setIndex(idx);
   const m = new Mesh(geo, createFlatMaterial(CH_SHADOW));
   m.frustumCulled = false;
@@ -226,6 +241,13 @@ function createPalm(): Mesh {
 
 export class ShadowStage {
   readonly target: WebGLRenderTarget;
+  /** Ping-pong target for the penumbra blur. */
+  private readonly temp: WebGLRenderTarget;
+  private readonly blurMat = createShadowBlurMaterial();
+  private readonly blurScene = new Scene();
+  private readonly blurCam = new OrthographicCamera(-1, 1, 1, -1, -1, 1);
+  /** Penumbra for this frame (stage units) - set by update(). */
+  penumbra = 0.01;
   readonly scene = new Scene();
   readonly camera = new OrthographicCamera(-1, 1, 1, -1, -1, 1);
   aspect = 1.45;
@@ -240,6 +262,9 @@ export class ShadowStage {
   private readonly glows = new GlowBatch(64);
   private readonly rabbit = createRabbitPuppet();
   private readonly iconRabbit = createRabbitPuppet();
+  private readonly wolf = new WolfPuppet();
+  private readonly iconWolf = new WolfPuppet();
+  private readonly moon: Mesh;
   private readonly water = createWater(1.8);
   private readonly icons: Mesh[] = [];
   private readonly ghostBuf: Capsule2D[] = [];
@@ -254,7 +279,14 @@ export class ShadowStage {
       depthBuffer: false,
       stencilBuffer: false,
       generateMipmaps: false,
+      // 4x MSAA: crisp, smooth edges on the paper cut-outs (tiny target, cheap)
+      samples: 4,
     });
+    this.temp = this.target.clone();
+    this.temp.samples = 0;
+    const quad = new Mesh(new PlaneGeometry(1, 1), this.blurMat);
+    quad.frustumCulled = false;
+    this.blurScene.add(quad);
     this.scene.add(
       this.water.mesh,
       this.scenery.mesh,
@@ -265,10 +297,15 @@ export class ShadowStage {
       this.details.mesh,
       this.rabbit.group,
       this.iconRabbit.group,
+      this.wolf.group,
+      this.iconWolf.group,
       this.glows.mesh,
       this.holes.mesh,
     );
-    for (let i = 0; i < 2; i++) {
+    this.moon = new Mesh(new ShapeGeometry(ellipse(0, 0, 1, 1, 0, 40), 1), createFlatMaterial(CH_LIGHT, 0.95));
+    this.moon.frustumCulled = false;
+    this.scene.add(this.moon);
+    for (let i = 0; i < 3; i++) {
       const icon = new Mesh(new PlaneGeometry(1, 1), createIconMaterial());
       icon.frustumCulled = false;
       this.icons.push(icon);
@@ -291,6 +328,7 @@ export class ShadowStage {
     const px = Math.round(resolution);
     const py = Math.max(64, Math.round((resolution * h) / w));
     this.target.setSize(px, py);
+    this.temp.setSize(px, py);
     this.camera.left = -w / 2;
     this.camera.right = w / 2;
     this.camera.top = h / 2;
@@ -298,7 +336,9 @@ export class ShadowStage {
     this.camera.updateProjectionMatrix();
   }
 
-  update(model: ShadowModel, view: StageView, time: number, reduceMotion: boolean): void {
+  update(model: ShadowModel, view: StageView, time: number, reduceMotion: boolean, flicker = 0): void {
+    // penumbra breathes a little with the flame
+    this.penumbra = model.penumbra * (1 + (reduceMotion ? 0 : 0.08 * flicker));
     // ---- cast shadows (hands & rod puppets)
     this.hands.begin();
     for (let i = 0; i < model.capsuleCount; i++) this.hands.push(model.capsules[i]);
@@ -418,10 +458,18 @@ export class ShadowStage {
             icon.visible,
           );
         }
-      } else {
+      } else if (icon.id === 'bridge') {
         // a little plank bridge under the icon rabbit
         this.details.pushRaw(icon.s - 0.07, icon.t - 0.045, icon.s + 0.07, icon.t - 0.045, 0.006, 0.003, icon.visible);
       }
+    }
+    const wolfIcon = view.icons.find((i) => i.id === 'wolf');
+    const iw = this.iconWolf;
+    if (wolfIcon && view.scene === 'menu' && wolfIcon.visible > 0.05) {
+      iw.update(wolfIcon.s + 0.005, wolfIcon.t - 0.05, 1, 'howl', 0.35, 0, 1, time);
+      iw.group.scale.set(0.4, 0.4, 1);
+    } else {
+      iw.group.visible = false;
     }
     const ir = this.iconRabbit.group;
     const bridgeIcon = view.icons[1];
@@ -446,8 +494,18 @@ export class ShadowStage {
       for (const child of [rg]) child.visible = fade > 0.02;
     }
 
+    // ---- wolf & moon
+    const wv = view.wolf;
+    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible, time);
+    const mv = view.moon;
+    this.moon.visible = mv.visible > 0.02;
+    this.moon.position.set(mv.s, mv.t, 0);
+    this.moon.scale.setScalar(mv.r * (0.85 + 0.15 * mv.visible));
+    (this.moon.material as import('@iwsdk/core').ShaderMaterial).uniforms.uStrength.value = 0.95 * mv.visible;
+
     // ---- light: fireflies & sparkles
     this.glows.begin();
+    if (mv.visible > 0.02) this.glows.push(mv.s, mv.t, mv.r * 2.6, (0.35 + 0.45 * mv.glow) * mv.visible);
     for (let i = 0; i < view.fireflies.length; i++) {
       const f = view.fireflies[i];
       if (f.alive) {
@@ -482,6 +540,22 @@ export class ShadowStage {
     renderer.render(this.scene, this.camera);
     this.lastCalls = renderer.info.render.calls;
     this.lastTriangles = renderer.info.render.triangles;
+    // Penumbra: blur the cast-shadow channel, horizontal then vertical.
+    const widthUnits = this.aspect + 2 * STAGE_PAD;
+    const radiusPx = Math.min(24, (this.penumbra / widthUnits) * this.target.width);
+    if (radiusPx > 0.6) {
+      const u = this.blurMat.uniforms;
+      const k = radiusPx / 4; // 4 taps per side span the radius
+      u.tSrc.value = this.target.texture;
+      (u.uStep.value as Vector4).set(k / this.target.width, 0, 0, 0);
+      renderer.setRenderTarget(this.temp);
+      renderer.render(this.blurScene, this.blurCam);
+      u.tSrc.value = this.temp.texture;
+      (u.uStep.value as Vector4).set(0, k / this.target.height, 0, 0);
+      renderer.setRenderTarget(this.target);
+      renderer.render(this.blurScene, this.blurCam);
+      this.lastCalls += 2;
+    }
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(this.prevClear, prevAlpha);
     xr.enabled = prevXr;

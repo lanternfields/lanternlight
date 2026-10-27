@@ -259,7 +259,7 @@ describe('shadow model', () => {
     m.build([createHandFrame('left'), hand], [], light, st, 1 / 72);
     const a = m.actors[1];
     expect(a.present).toBe(true);
-    expect(a.capsuleCount).toBe(25);
+    expect(a.capsuleCount).toBe(24); // 23 bones + forearm (the thumb web is part of the palm)
     expect(a.maxT - a.minT).toBeGreaterThan(0.25);
     expect(m.distanceToShadow(a.centroidS, a.centroidT)).toBeLessThan(0.02);
     expect(m.distanceToShadow(0.7, 0.45)).toBeGreaterThan(0.05);

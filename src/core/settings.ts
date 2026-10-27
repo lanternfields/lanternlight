@@ -89,6 +89,7 @@ export function loadProgress(store?: KeyValueStore | null): Progress {
     if (p.completed) {
       out.completed.croc = !!p.completed.croc;
       out.completed.bridge = !!p.completed.bridge;
+      out.completed.wolf = !!(p.completed as { wolf?: boolean }).wolf;
     }
     if (typeof p.firefliesEaten === 'number') out.firefliesEaten = p.firefliesEaten;
     if (typeof p.crossings === 'number') out.crossings = p.crossings;

@@ -184,7 +184,8 @@ export function penumbraWidth(
 ): number {
   // magnification = |light->hit| / |light->p|  => (p->hit)/(light->p) = m - 1
   const w = (2 * flameRadius * Math.max(0, magnification - 1)) / stage.height;
-  return clamp(w, 0.004, 0.06);
+  // Clamped for legibility: soft like lamplight, never mushy.
+  return clamp(w, 0.004, 0.032);
 }
 
 /** Angular stage sizing so the stage fits a comfortable, FoV-aware window. */

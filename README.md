@@ -21,7 +21,7 @@ Hands first (controllers become rod puppets), seated, about 10 minutes, no insta
 | Shadow model | 25 tracked joints become 2D capsules on the stage, plus palm polygons and a forearm. Rod puppets use the same pipeline. The renderer draws exactly what the physics collides with. | `src/core/shadow-model.ts` |
 | Hand shapes | Rotation-, size- and position-invariant features with hysteresis, validated on IWER's captured hand skeletons with 6 mm noise. The core mechanics (position, size, pinch to bite) need no pose recognition. | `src/core/hand-features.ts` |
 | Story | Prologue, shadow-touch menu, *The Hungry Crocodile*, *Rabbit's Bridge*. Every beat has an assist; there are no fail states. | `src/core/story.ts`, `src/core/rabbit.ts`, `src/core/physics2d.ts` |
-| Rendering | One small offscreen 4-channel mask (max-blended SDF capsules), one composite quad on the wall or scroll, and a room-dimming sphere. Everything is procedural; there are no textures. | `src/render/*` |
+| Rendering | Hands are drawn as tapered (uneven) SDF capsules plus a contoured palm with thumb webbing; the forearm fades out. The silhouettes render crisp into a small offscreen 4-channel mask, then a blur pass applies a physically scaled penumbra (a 1 cm flame) that widens as the hand nears the lantern and breathes with the flicker. One composite quad on the wall or scroll adds lamplight over passthrough, and a sphere dims the room. Everything is procedural; there are no textures. | `src/render/*` |
 | Audio | Fully procedural WebAudio: kalimba lullaby, lantern crackle, foley, HRTF-spatialised. | `src/audio/audio-engine.ts` |
 | Perf | Adaptive quality (stage resolution, foveation, shader detail) driven by p90 frame time. Starts lower on Quest 2 and the original Quest. | `src/core/perf.ts` |
 
@@ -58,6 +58,23 @@ The e2e suite drives the real app with emulated hands through IWER's remote-cont
 injects IWER 2.7's MIT-licensed pose library (`npm run poses:build`), because the IWER build in
 IWSDK 1.0.1 ships only three hand poses. Frame times in headless SwiftShader are not
 device-representative; the budget checks are structural (draw calls, triangles).
+
+## Demo footage (deterministic capture)
+
+```sh
+npm run dev:emu &
+node e2e/capture.mjs music_room 90 core-loop 260    # room, heading, name, max seconds
+```
+
+The capture records the real app in IWER at a perfectly smooth 60 fps on any machine:
+- `e2e/capture/vclock.js` freezes `requestAnimationFrame` and time.
+- For every output frame, `e2e/capture/director.js` poses the emulated hand: closed-loop shadow
+  steering through the app's own projection, smooth joint-by-joint blends between captured
+  poses, and a subtle tremor.
+- The clock then advances exactly 1/60 s, the frame is screenshotted, and ffmpeg encodes the frames.
+
+The emulator's own UI is hidden; nothing is composited or faked. Shadow before/after stills:
+`node e2e/pose-stills.mjs <label>`.
 
 ## Build and deploy (GitHub Pages)
 

@@ -328,6 +328,73 @@ export class AudioEngine {
       case 'whoosh':
         this.noiseHit(wet, now, 0.6, 0.12, 'bandpass', 400, 1600);
         break;
+      case 'growl': {
+        // a low, grumbly growl: buzzy tone under filtered noise, with flutter
+        const ctx2 = this.ctx!;
+        const o = ctx2.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(72, now);
+        o.frequency.linearRampToValueAtTime(64, now + 0.9);
+        const lp = ctx2.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 420;
+        const g = ctx2.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.09, now + 0.12);
+        g.gain.linearRampToValueAtTime(0.0001, now + 0.95);
+        const lfo = ctx2.createOscillator();
+        lfo.frequency.value = 23;
+        const lfoGain = ctx2.createGain();
+        lfoGain.gain.value = 0.04;
+        lfo.connect(lfoGain).connect(g.gain);
+        o.connect(lp).connect(g).connect(wet);
+        o.start(now);
+        lfo.start(now);
+        o.stop(now + 1);
+        lfo.stop(now + 1);
+        this.noiseHit(wet, now, 0.8, 0.05, 'lowpass', 300);
+        break;
+      }
+      case 'whimper':
+        this.tone(wet, 880, now, 0.18, 0.05, 'sine', 640);
+        this.tone(wet, 820, now + 0.22, 0.22, 0.04, 'sine', 560);
+        break;
+      case 'wolfFlee':
+        for (let i = 0; i < 8; i++) this.noiseHit(wet, now + i * 0.07, 0.05, 0.05, 'lowpass', 700);
+        this.tone(wet, 700, now, 0.25, 0.04, 'sine', 950);
+        break;
+      case 'howl': {
+        // a soft, musical howl: a gliding voice with vibrato, lots of reverb
+        const ctx2 = this.ctx!;
+        const o = ctx2.createOscillator();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(330, now);
+        o.frequency.exponentialRampToValueAtTime(587, now + 0.7);
+        o.frequency.exponentialRampToValueAtTime(494, now + 2.2);
+        const vib = ctx2.createOscillator();
+        vib.frequency.value = 5.5;
+        const vibG = ctx2.createGain();
+        vibG.gain.value = 9;
+        vib.connect(vibG).connect(o.frequency);
+        const bp = ctx2.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 900;
+        bp.Q.value = 0.8;
+        const g = ctx2.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.12, now + 0.35);
+        g.gain.linearRampToValueAtTime(0.09, now + 1.6);
+        g.gain.linearRampToValueAtTime(0.0001, now + 2.4);
+        o.connect(bp).connect(g).connect(wet);
+        o.start(now);
+        vib.start(now);
+        o.stop(now + 2.5);
+        vib.stop(now + 2.5);
+        break;
+      }
+      case 'bow':
+        [2, 4, 7].forEach((i, k) => this.pluck(SCALE[i], now + k * 0.05, 0.22, wet, 2));
+        break;
     }
   }
 }

@@ -109,7 +109,8 @@ export function groundAt(
     const c = shadows[i];
     // Only the hand (or puppet) is ground; the forearm's shadow is scenery-free.
     if (c.forearm) continue;
-    if (!capsuleColumn(c.ax, c.ay, c.bx, c.by, c.r * 0.92, x, _iv)) continue;
+    const rr = Math.max(c.r, c.rb ?? c.r);
+    if (!capsuleColumn(c.ax, c.ay, c.bx, c.by, rr * 0.92, x, _iv)) continue;
     if (_iv.hi <= limit && _iv.hi > out.y) {
       out.y = _iv.hi;
       out.source = i;

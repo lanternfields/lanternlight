@@ -245,3 +245,91 @@ describe('story: menu arming', () => {
     expect(ev).toContain('select');
   });
 });
+
+describe('story: the moon wolf', () => {
+  const big = (hand: FakeHand, ratio: number) => {
+    hand.set(0.05, 0.02);
+    hand.actor.sizeRatio = ratio;
+  };
+
+  it('a big shadow scares the wolf away three times, then it howls and the tale completes', () => {
+    const model = new ShadowModel();
+    const hand = new FakeHand(model);
+    const story = new Story();
+    story.enter('wolf');
+    const ev: string[] = [];
+    for (let i = 0; i < 72 * 120 && story.scene === 'wolf'; i++) {
+      // the viewer makes themselves huge whenever the wolf is close
+      if (story.wolf.state === 'prowl' || story.wolf.state === 'cower' || story.wolf.state === 'sit') big(hand, 1.8);
+      else hand.hide();
+      story.update(1 / 72, model);
+      for (const e of story.events) ev.push(e.type);
+    }
+    expect(ev.filter((e) => e === 'wolfFlee').length).toBe(3);
+    expect(ev).toContain('howl');
+    expect(story.progress.completed.wolf).toBe(true);
+  });
+
+  it('with no help the wolf only sits by the rabbit (no harm) and the hint appears', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    story.enter('wolf');
+    run(story, model, 30);
+    expect(story.wolf.state).toBe('sit');
+    expect(story.rabbit.state).toBe('idle');
+    expect(story.view.ghost.visible).toBeGreaterThan(0.2);
+    expect(story.view.caption).not.toBe('');
+  });
+
+  it('the assist makes the wolf more timid over time', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    story.enter('wolf');
+    run(story, model, 4);
+    const first = story.wolfThreshold();
+    run(story, model, 20);
+    expect(story.wolfThreshold()).toBeLessThan(first - 0.15);
+    // so a modestly bigger shadow now works
+    const hand = new FakeHand(model);
+    const ev = run(story, model, 4, () => big(hand, 1.2));
+    expect(ev).toContain('wolfFlee');
+  });
+
+  it('two hands together count as bigger', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    const left = model.actors[0];
+    const hand = new FakeHand(model);
+    hand.set(0.1, 0);
+    hand.actor.sizeRatio = 1.0;
+    left.present = true;
+    left.sizeRatio = 1.0;
+    left.centroidS = -0.1;
+    left.centroidT = 0;
+    expect(story.bigness(model)).toBeCloseTo(1.25, 5);
+  });
+
+  it('after all three tales the curtain call plays once, then the menu', () => {
+    const progress = createProgress();
+    progress.completed.croc = true;
+    progress.completed.bridge = true;
+    const model = new ShadowModel();
+    const hand = new FakeHand(model);
+    const story = new Story(DEFAULT_STORY_SETTINGS, progress);
+    story.enter('wolf');
+    const scenes = new Set<string>();
+    const ev: string[] = [];
+    for (let i = 0; i < 72 * 150; i++) {
+      if (story.scene === 'wolf' && ['prowl', 'cower', 'sit'].includes(story.wolf.state)) big(hand, 1.8);
+      else hand.hide();
+      story.update(1 / 72, model);
+      scenes.add(story.scene);
+      for (const e of story.events) ev.push(e.type);
+      if (story.scene === 'menu' && scenes.has('finale')) break;
+    }
+    expect(scenes.has('finale')).toBe(true);
+    expect(ev).toContain('bow');
+    expect(story.scene).toBe('menu');
+    expect(story.finaleSeen).toBe(true);
+  });
+});

@@ -126,7 +126,45 @@ try {
   }
   s = await snap(page);
   step('bridge done', { crossings: s.stats.crossings, splashes: s.stats.splashes, completed: s.progress.completed });
-  report.ok = s.progress.completed.croc && s.progress.completed.bridge;
+  await setHand(page, { device: 'hand-right', x: 0.3, y: 0.8, z: -0.1, pose: 'relaxed' });
+  await waitFor(page, `(s) => s.scene === 'menu'`, 30000);
+  await page.waitForTimeout(1500);
+
+  // The Moon Wolf: make yourself big when the wolf prowls (hand toward the lantern).
+  s = await snap(page);
+  const wolfIcon = s.view.icons.find((i) => i.id === 'wolf');
+  const r4 = await steer(page, { ...base }, [wolfIcon.s, wolfIcon.t]);
+  step('touching wolf icon', { error: r4.error });
+  await waitFor(page, `(s) => s.scene === 'wolf'`, 20000);
+  await setHand(page, { ...r4.hand, y: 0.8, x: 0.3 });
+  const near = { ...base, pose: 'open' };
+  const centred = await steer(page, near, [0.0, 0.05]);
+  const closeToLantern = { ...centred.hand, z: centred.hand.z + 0.24, y: centred.hand.y - 0.03 };
+  const wolfStart = Date.now();
+  let shotDone = false;
+  while (Date.now() - wolfStart < 150000) {
+    s = await snap(page);
+    if (s.scene !== 'wolf' || s.progress.completed.wolf) break;
+    const ws = s.view.wolfState;
+    if (ws === 'prowl' || ws === 'sit' || ws === 'cower') {
+      await setHand(page, closeToLantern);
+      if (!shotDone && ws === 'cower') {
+        await shot(page, `${room}-10-wolf-cower`);
+        shotDone = true;
+      }
+    } else {
+      await setHand(page, { ...centred.hand, y: 0.8, x: 0.3 });
+    }
+    await page.waitForTimeout(300);
+  }
+  s = await snap(page);
+  await shot(page, `${room}-11-wolf-howl`);
+  step('wolf done', { completed: s.progress.completed, size: s.actors[1].size });
+  await waitFor(page, `(s) => s.scene === 'finale' || s.scene === 'menu'`, 30000);
+  await page.waitForTimeout(3500);
+  await shot(page, `${room}-12-finale`);
+  s = await snap(page);
+  report.ok = s.progress.completed.croc && s.progress.completed.bridge && s.progress.completed.wolf;
   report.final = s;
 } catch (e) {
   step('ERROR', { message: e.message });

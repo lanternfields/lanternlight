@@ -55,7 +55,7 @@ export class TextLabel {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     this.mesh.visible = text.length > 0;
     if (!text) return;
-    const size = Math.round(canvas.height * 0.52);
+    const size = Math.round(canvas.height * 0.5);
     ctx.font = `italic ${size}px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

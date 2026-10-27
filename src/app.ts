@@ -62,10 +62,13 @@ export class App {
   placement: StagePlacement | null = null;
   lanternPlacement: LanternPlacement | null = null;
   readonly focal = new V3();
+  private readonly flameLight = new V3();
   readonly head = new V3();
   readonly headForward = new V3(0, 0, -1);
   readonly headUp = new V3(0, 1, 0);
   phase: Phase = 'landing';
+  /** Debug/stills: hold the story still while shadows stay live. */
+  freezeStory = false;
   /** True when IWER (the emulator) is driving the session. */
   readonly emulated: boolean;
   inputMode: 'hands' | 'controllers' | 'none' = 'none';
@@ -75,7 +78,7 @@ export class App {
   readonly dim = new RoomDim();
   readonly lantern = new Lantern();
   readonly caption = new TextLabel(1400, 120, 0.05);
-  readonly iconLabels = [new TextLabel(900, 110, 0.04), new TextLabel(900, 110, 0.04)];
+  readonly iconLabels = [new TextLabel(900, 110, 0.04), new TextLabel(900, 110, 0.04), new TextLabel(900, 110, 0.04)];
   readonly audio = new AudioEngine();
   readonly menu: LanternMenu;
   readonly theatre = new VirtualTheatre();
@@ -498,8 +501,11 @@ export class App {
     const b = createProjected();
     projectToStage(wrist, this.focal, fr, a);
     projectToStage(knuckle, this.focal, fr, b);
-    if (a.valid && b.valid) this.model.nominalPalmShadow = Math.hypot(b.s - a.s, b.t - a.t);
-    this.model.flameRadius = 0.02;
+    if (a.valid && b.valid) {
+      this.model.nominalPalmShadow = Math.hypot(b.s - a.s, b.t - a.t);
+      this.model.nominalMagnification = (a.magnification + b.magnification) / 2;
+    }
+    // (penumbra flame radius lives in shadow-model: FLAME_RADIUS)
   }
 
   // ------------------------------------------------------------------- step
@@ -546,9 +552,12 @@ export class App {
     this.model.head.copy(this.head);
     // viewer right = forward x up (horizontal)
     this.model.right.set(-this.headForward.z, 0, this.headForward.x);
-    this.model.build(this.hands, this.rods, this.focal, fr, dt, needPose);
+    // the flame sways a few millimetres: so do the shadows
+    const fl = this.settings.reduceMotion ? 0 : this.lantern.flicker * this.story.view.flame;
+    this.flameLight.set(this.focal.x + fl * 0.0035, this.focal.y + Math.abs(fl) * 0.0025, this.focal.z);
+    this.model.build(this.hands, this.rods, this.flameLight, fr, dt, needPose);
     this.updateMenu(dt, time);
-    if (!this.menu.open) this.story.update(dt, this.model);
+    if (!this.menu.open && !this.freezeStory) this.story.update(dt, this.model);
     else this.story.events.length = 0;
     const view = this.story.view;
     const reduce = this.settings.reduceMotion;
@@ -566,7 +575,7 @@ export class App {
     }
 
     // Offscreen shadow stage.
-    this.stage.update(this.model, view, time, reduce);
+    this.stage.update(this.model, view, time, reduce, this.lantern.flicker * view.flame);
     this.stage.render(this.world.renderer);
 
     // Composite + room + lantern.
@@ -597,7 +606,8 @@ export class App {
 
     // Audio.
     this.audio.updateListener(this.head, this.headForward, this.headUp);
-    const music = this.story.scene === 'menu' || this.story.scene === 'bridge' ? 1 : this.story.scene === 'croc' ? 0.7 : view.light > 0.5 ? 0.5 : 0;
+    const sc = this.story.scene;
+    const music = sc === 'menu' || sc === 'bridge' || sc === 'finale' ? 1 : sc === 'croc' ? 0.7 : sc === 'wolf' ? 0.35 : view.light > 0.5 ? 0.5 : 0;
     this.audio.tick(dt, view.flame, music * (1 - view.fade));
     for (const e of this.story.events) this.audio.play(e.type, e.s, e.t, e.value);
 
@@ -909,6 +919,9 @@ export class App {
         caption: this.story.view.caption,
         icons: this.story.view.icons.map((i) => ({ id: i.id, fill: +i.fill.toFixed(2), s: i.s, t: i.t })),
         fireflies: this.story.view.fireflies.filter((f) => f.alive).map((f) => [+f.x.toFixed(3), +f.y.toFixed(3)]),
+        wolfState: this.story.wolf.state,
+        wolfX: +this.story.wolf.x.toFixed(3),
+        courage: +this.story.view.courage.toFixed(2),
       },
       perf: {
         frame: this.frameStats.summary(),
