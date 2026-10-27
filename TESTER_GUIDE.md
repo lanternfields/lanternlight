@@ -21,24 +21,28 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 ## Open the test link
 
 1. Put the controllers down. Open the **Browser** in the headset.
-2. Type the link we sent you exactly, including `?tester=1` at the end, for example
-   `https://lanternfields.github.io/lanternlight/?tester=1`
+2. Go to **https://lanternfields.github.io/lanternlight/?tester=1**
+   (type it exactly, including `?tester=1` at the end).
 3. Press **Begin**. If the headset asks for permission to use your room / hand tracking /
    spatial data, choose **Allow**.
-4. A small **Tester** card floats near the lantern, showing FPS, device, and a checklist. If you
-   can, keep it in a screenshot or recording now and then.
+   - On an **original Quest** the button says **Begin (virtual theatre)**. That's expected.
+   - If it says **Open on Meta Quest**, the page isn't open in the headset's own Browser.
+4. A small **Tester** card floats beside the lantern. It shows FPS, which headset and mode you
+   are on, and a checklist. If you can, keep it in a screenshot or recording now and then.
 
 ## What to try (ticks itself on the Tester card)
 
 - **Make the rabbit.** Raise a hand into the light; when a faint ghost hand shows a "peace" sign, copy it.
 - **Feed the crocodile.** Hold your shadow on a glowing circle to open a tale. Open your hand,
-  then pinch thumb and finger together to bite the fireflies.
+  then pinch your thumb and fingers together to bite the fireflies.
 - **Rabbit's bridge.** Hold your hand flat and sideways so its shadow makes a bridge over the
   river. For the last river, bring your hand closer to the lantern to make the shadow bigger.
-- **Use your other hand** at some point (both hands work).
+- **Use both hands** at some point (either hand can perform).
 - **Try controllers**: pick them up. They become shadow puppets on sticks, and the trigger bites.
-- **Lantern menu**: touch the lantern and hold your fingertip there for half a second. Try
-  *Dim* and *Stage here* (look somewhere else first, then press it).
+- **Lantern menu**: rest a fingertip on the lantern for about half a second. Try *Dim*, and
+  *Stage here* (look at another spot first, then press it).
+- **The Moon Wolf**: when the wolf creeps toward the rabbit, make your shadow big by bringing
+  your hand close to the lantern, or raise both hands.
 
 ## Recording (please, if you can)
 
