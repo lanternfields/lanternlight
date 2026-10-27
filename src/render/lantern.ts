@@ -65,15 +65,19 @@ export class Lantern {
         varying vec3 vN;
         varying vec3 vView;
         void main() {
-          float ribs = smoothstep(0.0, 0.05, abs(fract(vUv.x * 10.0) - 0.5) * 2.0 - 0.02);
-          float bands = 1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.06, abs(fract(vUv.y * 5.0 + 0.5) - 0.5)));
+          // Thin bamboo ribs and paper seams, lit from inside by the flame.
+          float ribs = smoothstep(0.0, 0.035, abs(fract(vUv.x * 10.0) - 0.5) * 2.0 - 0.015);
+          float bands = 1.0 - 0.22 * (1.0 - smoothstep(0.0, 0.05, abs(fract(vUv.y * 5.0 + 0.5) - 0.5)));
           float facing = abs(dot(normalize(vN), normalize(vView)));
-          float inner = mix(0.55, 1.0, facing); // brighter where we look through the paper
-          float core = 1.0 - smoothstep(0.15, 0.85, abs(vUv.y - 0.48) * 2.0);
-          float lum = uFlame * (0.55 + 0.45 * core) * inner * (0.9 + 0.1 * uFlicker);
-          vec3 cool = vec3(0.32, 0.26, 0.2);
-          vec3 hot = vec3(1.0, 0.66, 0.3);
-          vec3 col = mix(cool, hot, lum) * mix(0.55, 1.0, ribs) * bands;
+          float inner = mix(0.7, 1.0, facing);
+          float core = 1.0 - smoothstep(0.0, 0.9, abs(vUv.y - 0.5) * 2.0);
+          float lum = uFlame * (0.65 + 0.35 * core) * inner * (0.92 + 0.08 * uFlicker);
+          vec3 cool = vec3(0.36, 0.3, 0.24);   // unlit paper
+          vec3 hot = vec3(1.0, 0.72, 0.4);     // glowing paper
+          vec3 white = vec3(1.0, 0.93, 0.78);  // hot spot round the flame
+          vec3 col = mix(cool, hot, smoothstep(0.0, 0.8, lum));
+          col = mix(col, white, smoothstep(0.75, 1.0, lum * core));
+          col *= mix(0.72, 1.0, ribs) * bands;
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -104,15 +108,17 @@ export class Lantern {
         varying vec2 vUv;
         void main() {
           float r = length(vUv);
-          float g = exp(-r * r * 5.0) * uI;
-          gl_FragColor = vec4(vec3(1.0, 0.62, 0.28) * g * 0.55, 0.0);
+          float g = (exp(-r * r * 9.0) * 0.8 + exp(-r * r * 2.5) * 0.35) * uI;
+          gl_FragColor = vec4(vec3(1.0, 0.64, 0.3) * g, 0.0);
         }
       `,
       transparent: true,
       depthWrite: false,
       blending: AdditiveBlending,
+      // premultiplied additive = blendFunc(ONE, ONE): pure added light over passthrough
+      premultipliedAlpha: true,
     });
-    this.halo = new Mesh(new PlaneGeometry(0.42, 0.42), this.haloMat);
+    this.halo = new Mesh(new PlaneGeometry(0.5, 0.5), this.haloMat);
     this.halo.position.y = this.flameOffset;
     this.halo.renderOrder = 20;
     this.poolMat = new ShaderMaterial({
@@ -127,12 +133,14 @@ export class Lantern {
         void main() {
           float r = length(vUv);
           float g = (1.0 - smoothstep(0.0, 1.0, r)) * uI;
-          gl_FragColor = vec4(vec3(1.0, 0.6, 0.26) * g * 0.35, 0.0);
+          gl_FragColor = vec4(vec3(1.0, 0.6, 0.26) * g * 0.5, 0.0);
         }
       `,
       transparent: true,
       depthWrite: false,
       blending: AdditiveBlending,
+      // premultiplied additive = blendFunc(ONE, ONE): pure added light over passthrough
+      premultipliedAlpha: true,
     });
     this.pool = new Mesh(new CircleGeometry(0.3, 32), this.poolMat);
     this.pool.rotation.x = -Math.PI / 2;

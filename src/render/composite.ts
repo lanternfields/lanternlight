@@ -75,17 +75,25 @@ const STAGE_FRAG = /* glsl */ `
       float sh = shadow * (0.25 + 0.75 * smoothstep(0.0, 0.35, pool));
       vec3 col = mix(lit, shadowCol + paper * 0.03, sh);
       col += glow * glowCol * 0.85;
-      gl_FragColor = vec4(col, paperMask * 0.97 * (1.0 - uFade * 0.6));
+      float pa = paperMask * 0.97 * (1.0 - uFade * 0.6);
+      gl_FragColor = vec4(col * pa, pa); // premultiplied
     } else {
-      float lightA = uContrast > 0.5 ? 0.55 : 0.42;
-      float shadowA = uContrast > 0.5 ? 0.97 : 0.88;
-      float a = pool * mix(lightA, shadowA, shadow);
-      vec3 col = mix(warm, shadowCol, shadow);
-      col = mix(col, glowCol, clamp(glow, 0.0, 1.0));
-      a = max(a, clamp(glow, 0.0, 1.0) * 0.9 * min(1.0, pool * 1.5 + 0.2));
-      a *= (1.0 - uFade);
-      if (a < 0.002) discard;
-      gl_FragColor = vec4(col, a);
+      // Premultiplied: lamplight ADDS warm light over the real wall (it can
+      // brighten, not just tint), shadows darken it. out = rgb + (1-a)*wall.
+      float lit = pool * (1.0 - shadow);
+      float addK = uContrast > 0.5 ? 0.62 : 0.5;
+      vec3 add = (uContrast > 0.5 ? warm : vec3(1.0, 0.58, 0.24)) * lit * addK;
+      float dimA = lit * (uContrast > 0.5 ? 0.22 : 0.16); // a little multiply = richer colour
+      float shadowA = (uContrast > 0.5 ? 0.97 : 0.88) * shadow * smoothstep(0.0, 0.25, pool);
+      vec3 rgb = add * (1.0 - shadowA) + shadowCol * shadowA;
+      float g = clamp(glow, 0.0, 1.0) * min(1.0, pool * 1.5 + 0.25);
+      rgb += glowCol * g * 0.9;
+      float a = max(dimA, shadowA) + g * 0.2;
+      float f = 1.0 - uFade;
+      rgb *= f;
+      a *= f;
+      if (a < 0.002 && dot(rgb, rgb) < 1e-5) discard;
+      gl_FragColor = vec4(rgb, a);
     }
   }
 `;
@@ -120,6 +128,7 @@ export class StageComposite {
       transparent: true,
       depthWrite: false,
       blending: NormalBlending,
+      premultipliedAlpha: true,
     });
     this.mesh = new Mesh(new PlaneGeometry(1, 1), this.material);
     this.mesh.renderOrder = 10;
