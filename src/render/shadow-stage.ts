@@ -446,7 +446,7 @@ export class ShadowStage {
       if (!mesh.visible) continue;
       if (icon.id === 'croc') {
         // the croc puppet spans ~0.4 m; fit it inside the ring
-        const k = (icon.r * 1.45) / 0.26;
+        const k = (icon.r * 1.45) / 0.18;
         for (const part of CROC_ROD_PUPPET.slice(1)) {
           this.details.pushRaw(
             icon.s + (part.a[0] + 0.02) * k,

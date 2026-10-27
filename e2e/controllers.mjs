@@ -53,7 +53,11 @@ try {
 
   s = await snap(page);
   const crocIcon = s.view.icons.find((i) => i.id === 'croc');
-  r = await steer(page, base, [crocIcon.s, crocIcon.t], { actorIndex: ROD });
+  // approach from below, on the icon's own side (never across the middle icon)
+  const approach = (icon) => ({ ...base, x: icon.s * 0.35, y: base.y - 0.12 });
+  await setHand(page, approach(crocIcon));
+  await page.waitForTimeout(300);
+  r = await steer(page, approach(crocIcon), [crocIcon.s, crocIcon.t], { actorIndex: ROD });
   await waitFor(page, `(s) => s.scene === 'croc'`, 40000);
   step('croc via puppet shadow touch', { error: r.error });
   await page.waitForTimeout(1500);
@@ -81,7 +85,9 @@ try {
 
   s = await snap(page);
   const bridgeIcon = s.view.icons.find((i) => i.id === 'bridge');
-  r = await steer(page, base, [bridgeIcon.s, bridgeIcon.t], { actorIndex: ROD });
+  await setHand(page, approach(bridgeIcon));
+  await page.waitForTimeout(300);
+  r = await steer(page, approach(bridgeIcon), [bridgeIcon.s, bridgeIcon.t], { actorIndex: ROD });
   await waitFor(page, `(s) => s.scene === 'bridge'`, 40000);
   step('bridge via puppet shadow touch');
   await page.waitForTimeout(1500);

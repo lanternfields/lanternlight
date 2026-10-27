@@ -167,7 +167,7 @@ export interface RodPuppetPart {
  * controller naturally (pointing at the wall) shows the puppet broadside.
  * Its long flat back doubles as a bridge for the rabbit.
  */
-const PUPPET_SCALE = 0.65;
+const PUPPET_SCALE = 0.45; // an 18 cm stick puppet: about the size of a hand
 const P = (x: number, y: number): [number, number, number] => [x * PUPPET_SCALE, 0.2 + (y - 0.2) * PUPPET_SCALE, 0];
 export const CROC_ROD_PUPPET: readonly RodPuppetPart[] = [
   { a: [0, 0.02, 0], b: [0, 0.17, 0], r: 0.005 }, // rod
