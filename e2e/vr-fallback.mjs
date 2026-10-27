@@ -1,0 +1,14 @@
+import { launch, openApp, enterXR, snap, shot, remote, setHand, waitFor } from './lib.mjs';
+const { browser, page, logs } = await launch();
+await openApp(page, { query: '?vr=1&tester=1' });
+await enterXR(page);
+await remote(page, 'set_input_mode', { mode: 'hand' });
+await remote(page, 'set_connected', { device: 'hand-left', connected: false });
+await waitFor(page, `(s) => ['wave', 'play', 'rabbitHint'].includes(s.beat) || s.scene !== 'intro'`, 30000).catch(async (e) => { console.log('STATE', JSON.stringify(await snap(page)).slice(0, 900)); throw e; });
+await setHand(page, { x: 0.05, y: 1.38, z: -0.42, pose: 'open' });
+await page.waitForTimeout(2000);
+await shot(page, 'vr-theatre');
+const s = await snap(page);
+console.log(JSON.stringify({ session: s.session, device: s.device, stage: s.stage, lantern: s.lantern, beat: s.beat }));
+console.log(logs.filter((l) => /PAGEERROR|error/i.test(l)).slice(0, 5).join('\n'));
+await browser.close();

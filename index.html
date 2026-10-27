@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="description" content="Lanternlight - a hand-shadow theatre for your room. A mixed reality WebXR experience for Meta Quest." />
+    <meta name="theme-color" content="#120c0a" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='18' fill='%23f2a04a'/%3E%3Crect x='24' y='12' width='16' height='5' rx='2' fill='%233a2618'/%3E%3Crect x='24' y='51' width='16' height='5' rx='2' fill='%233a2618'/%3E%3C/svg%3E" />
+    <title>Lanternlight</title>
+    <style>
+      :root {
+        --ink: #f6e7cf;
+        --muted: #c9b59a;
+        --bg: #120c0a;
+        --amber: #f2a04a;
+        --amber-deep: #c96f2a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+      body { font-family: Georgia, 'Noto Serif', 'Times New Roman', serif; }
+      #scene-container { position: fixed; inset: 0; }
+      #landing {
+        position: fixed; inset: 0; z-index: 10; overflow: auto;
+        display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+        background:
+          radial-gradient(ellipse 60% 45% at 50% 38%, rgba(242,160,74,0.28), rgba(242,160,74,0) 70%),
+          radial-gradient(ellipse 90% 70% at 50% 110%, rgba(0,0,0,0.6), rgba(0,0,0,0) 70%),
+          var(--bg);
+      }
+      #landing.hidden { display: none; }
+      .card { max-width: 620px; width: 100%; text-align: center; }
+      .lamp {
+        width: 74px; height: 92px; margin: 0 auto 18px; position: relative;
+        filter: drop-shadow(0 0 26px rgba(242,160,74,0.7));
+      }
+      .lamp .body {
+        position: absolute; left: 7px; top: 14px; width: 60px; height: 64px; border-radius: 46% 46% 42% 42%;
+        background: radial-gradient(circle at 50% 50%, #ffd59a, var(--amber) 55%, var(--amber-deep));
+        animation: flicker 3.2s infinite ease-in-out;
+      }
+      .lamp .cap { position: absolute; left: 22px; width: 30px; height: 9px; border-radius: 3px; background: #3a2618; }
+      .lamp .cap.top { top: 6px; } .lamp .cap.bottom { top: 76px; }
+      @keyframes flicker { 0%,100% { opacity: 1 } 40% { opacity: 0.9 } 60% { opacity: 0.96 } }
+      @media (prefers-reduced-motion: reduce) { .lamp .body { animation: none; } }
+      h1 { font-size: clamp(40px, 8vw, 64px); font-weight: 400; letter-spacing: 0.04em; margin: 0 0 6px; }
+      .tag { font-style: italic; color: var(--muted); font-size: 19px; margin: 0 0 26px; }
+      button.begin {
+        font: inherit; font-size: 22px; letter-spacing: 0.06em; color: #1b0f08; cursor: pointer;
+        background: linear-gradient(#ffcf8c, var(--amber)); border: 0; border-radius: 40px;
+        padding: 16px 46px; box-shadow: 0 0 34px rgba(242,160,74,0.55);
+      }
+      button.begin:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+      button.begin:focus-visible, .opts input:focus-visible { outline: 3px solid #fff3dc; outline-offset: 3px; }
+      .how { margin: 26px auto 0; max-width: 520px; text-align: left; color: var(--muted); line-height: 1.55; font-size: 16px; }
+      .how b { color: var(--ink); font-weight: 400; }
+      .opts { margin: 22px auto 0; max-width: 520px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; text-align: left; font-size: 16px; }
+      .opts label { display: flex; gap: 10px; align-items: center; cursor: pointer; }
+      .opts input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--amber); }
+      .opts .wide { grid-column: 1 / -1; }
+      .opts input[type=range] { flex: 1; accent-color: var(--amber); }
+      #notice { margin-top: 16px; color: #ffcf8c; min-height: 1.4em; }
+      footer { margin-top: 26px; font-size: 13px; color: #8f7d68; line-height: 1.6; }
+      @media (max-width: 520px) { .opts { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div id="scene-container"></div>
+    <main id="landing" aria-label="Lanternlight">
+      <div class="card">
+        <div class="lamp" aria-hidden="true"><div class="cap top"></div><div class="body"></div><div class="cap bottom"></div></div>
+        <h1>Lanternlight</h1>
+        <p class="tag">A hand-shadow theatre for your room</p>
+        <button class="begin" id="begin" type="button" disabled>Loading&hellip;</button>
+        <div id="notice" role="status" aria-live="polite"></div>
+        <div class="how">
+          <p><b>Sit comfortably and face a wall.</b> A little paper lantern lights up beside you and turns
+          your wall into a stage. No free wall nearby? A paper scroll unrolls in front of you instead.</p>
+          <p><b>Your hands are the puppets.</b> Raise one into the light. Make shapes, feed the crocodile,
+          build a bridge for the rabbit. Controllers work too: they become shadow puppets on sticks.</p>
+          <p><b>Tap the lantern</b> any time to pause or change settings.</p>
+        </div>
+        <form class="opts" id="opts" onsubmit="return false">
+          <label><input type="checkbox" id="opt-gentle" /> Gentle mode (bigger targets, more help)</label>
+          <label><input type="checkbox" id="opt-captions" checked /> Captions</label>
+          <label><input type="checkbox" id="opt-motion" /> Reduce motion</label>
+          <label><input type="checkbox" id="opt-contrast" /> High contrast stage</label>
+          <label class="wide">Room dimming <input type="range" id="opt-dim" min="0" max="85" step="5" value="65" aria-label="Room dimming" /></label>
+          <label class="wide"><input type="checkbox" id="opt-left" /> I perform with my left hand</label>
+        </form>
+        <footer>
+          Built with Meta's Immersive Web SDK &middot; built with AI assistance (Claude Code)<br />
+          Everything stays on your headset. No account, no camera images, no tracking.<br />
+          <span id="build"></span>
+        </footer>
+      </div>
+    </main>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>
