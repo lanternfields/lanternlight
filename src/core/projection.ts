@@ -150,9 +150,13 @@ export function nominalHandPoint(stage: Readonly<StageFrame>, head: Readonly<V3>
  *  - from the viewer's eyes the hand is ~25 deg below its own shadow, so the
  *    hand never hides the shadow it makes (a light behind the eyes would);
  *  - the distance is chosen so the shadow is about `targetShadowHeight` stage
- *    units tall at any wall distance, and moving the hand toward the viewer
- *    (toward the light) still grows the shadow ("come closer to be huge").
+ *    units tall, but never more than MAX_LIGHT_BEHIND_HAND behind the hand, so
+ *    bringing the hand back toward you (toward the light) grows the shadow
+ *    within easy reach.
  */
+/** Furthest the effective light sits behind a comfortably held hand (m). */
+export const MAX_LIGHT_BEHIND_HAND = 0.75;
+
 export function computeFocalLight(
   stage: Readonly<StageFrame>,
   head: Readonly<V3>,
@@ -166,7 +170,10 @@ export function computeFocalLight(
   const handToStage = Math.max(0.15, Math.hypot(dir.x, dir.y, dir.z));
   normalize(dir, dir);
   const k = Math.max(1.15, (target * stage.height) / NOMINAL_HAND.size);
-  const d = clamp(handToStage / (k - 1), 0.22, 1.8);
+  // At most MAX_LIGHT_BEHIND_HAND behind the hand: then pulling the hand ~20 cm
+  // back toward you grows its shadow by ~1.4x (a light much further back would
+  // need the hand right at your face). Far walls get slightly bigger shadows.
+  const d = clamp(handToStage / (k - 1), 0.22, MAX_LIGHT_BEHIND_HAND);
   out.copy(h0);
   addScaled(out, out, dir, d);
   return out;

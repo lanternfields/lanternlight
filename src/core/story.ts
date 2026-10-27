@@ -14,6 +14,7 @@
 import { Capsule2D, ShadowModel, Actor } from './shadow-model.js';
 import { Rabbit, RabbitWorld } from './rabbit.js';
 import { clamp, dist2, mulberry32, pointSegmentDistance } from './math.js';
+import { easeInCubic } from './ease.js';
 import { PoseId } from './hand-features.js';
 import { Wolf, WolfState } from './wolf.js';
 
@@ -200,6 +201,9 @@ function approach(v: number, target: number, rate: number, dt: number): number {
   return v + (target - v) * (1 - Math.exp(-rate * dt));
 }
 
+const PRESENT_ORDER_R = [1, 0, 3, 2];
+const PRESENT_ORDER_L = [0, 1, 2, 3];
+
 /** Stage-units distance inside the shadow needed for a dwell "touch". */
 const TOUCH_DEPTH = 0.005;
 
@@ -230,6 +234,9 @@ export class Story {
   private round = 0;
   private readonly rounds = [0.13, 0.19, 0.25];
   private peerTime = 0;
+  /** Seconds the rabbit has waited for help this round (drives the plank assist). */
+  private waitTime = 0;
+  private readonly plank = { active: false, t: 0, done: false, index: 0 };
   private readonly world: RabbitWorld;
   /** Moon Wolf tale */
   readonly wolf = new Wolf();
@@ -237,7 +244,7 @@ export class Story {
   private roundTime = 0;
   private awayTime = 0;
   /** Debug/test hooks: last selected icon, counters. */
-  readonly stats = { selections: 0, chomps: 0, eaten: 0, crossings: 0, splashes: 0, rabbitBirths: 0 };
+  readonly stats = { selections: 0, chomps: 0, eaten: 0, crossings: 0, splashes: 0, rabbitBirths: 0, assists: 0 };
 
   constructor(settings: StorySettings = DEFAULT_STORY_SETTINGS, progress: Progress = createProgress()) {
     this.settings = settings;
@@ -384,6 +391,38 @@ export class Story {
     this.view.burrow.s = 0.62;
     this.view.burrow.t = GROUND_T;
     this.peerTime = 0;
+    this.waitTime = 0;
+    this.plank.active = false;
+    this.plank.done = false;
+  }
+
+  /** The bridge assist: a paper plank drops into the gap (eased, with a bounce). */
+  private updatePlank(dt: number, gap: number): void {
+    const pl = this.plank;
+    const before = pl.t;
+    pl.t = Math.min(1, pl.t + dt / 0.9);
+    // fall with ease-in, then a small settle bounce
+    const u = pl.t < 0.7 ? easeInCubic(pl.t / 0.7) : 1 - Math.sin(((pl.t - 0.7) / 0.3) * Math.PI) * 0.06;
+    const y = GROUND_T + 0.32 * (1 - u) - 0.012;
+    if (before < 0.7 && pl.t >= 0.7) this.emit('land', 0, GROUND_T, 1);
+    const n = pl.index;
+    if (n >= this.view.scenery.length) return;
+    const c = this.view.scenery[n];
+    c.ax = -gap - 0.05;
+    c.ay = y;
+    c.bx = gap + 0.05;
+    c.by = y;
+    c.r = 0.014;
+    c.soft = 0.004;
+    c.actor = -1;
+    // drawn and stood on from this frame on (the count is reset by setScenery)
+    this.view.sceneryCount = n + 1;
+    this.world.sceneryCount = n + 1;
+    if (pl.t >= 1) {
+      // settled: keep it as permanent scenery for this round
+      this.plank.active = false;
+      this.plank.done = true;
+    }
   }
 
   private requestScene(scene: SceneId): void {
@@ -492,9 +531,23 @@ export class Story {
     return Math.abs(a.centroidS) < 0.72 && Math.abs(a.centroidT) < 0.55;
   }
 
+  /** The actor performing: the dominant hand if it is in the light, else any hand or puppet that is. */
   private presentActor(model: ShadowModel): Actor | null {
-    const a = model.primaryActor(this.settings.dominant);
-    return a && this.actorInPool(a) ? a : null;
+    const order = this.settings.dominant === 'right' ? PRESENT_ORDER_R : PRESENT_ORDER_L;
+    for (const i of order) {
+      const a = model.actors[i];
+      if (a.present && this.actorInPool(a)) return a;
+    }
+    return null;
+  }
+
+  /**
+   * True while the story asks the viewer to change their shadow's size (the
+   * last bridge, scaring the wolf): fingertip taps on the lantern are ignored
+   * then, so a hand pulled back toward the body never opens the menu by accident.
+   */
+  get sizeBeat(): boolean {
+    return (this.scene === 'bridge' && this.beat === 'cross' && this.round >= 1) || (this.scene === 'wolf' && this.beat === 'scare');
   }
 
   private rabbitPoseSeen(model: ShadowModel): Actor | null {
@@ -535,6 +588,11 @@ export class Story {
           this.emit('shadowFound', actor.centroidS, actor.centroidT);
           v.sparkle = 1;
           this.setBeat('play');
+        } else if (this.beatTime > (this.settings.gentle ? 12 : 20)) {
+          // Assist: no hand in the light yet (tracking trouble, hands resting
+          // elsewhere): the show goes on and the rabbit comes anyway.
+          this.stats.assists++;
+          this.setBeat('play');
         }
         break;
       case 'play':
@@ -570,7 +628,7 @@ export class Story {
         v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
         v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
         this.stepRabbit(dt, true);
-        if (this.beatTime > 2.6 && this.rabbit.state === 'idle' && !this.pendingScene) {
+        if (((this.beatTime > 2.6 && this.rabbit.state === 'idle') || this.beatTime > 8) && !this.pendingScene) {
           this.progress.visits++;
           this.requestScene('menu');
         }
@@ -641,13 +699,15 @@ export class Story {
       }
     }
     // Gentle caption if nobody has touched anything for a while.
-    const anyFill = v.icons.some((i) => i.fill > 0);
+    let anyFill = false;
+    for (const i of v.icons) if (i.fill > 0) anyFill = true;
     v.caption = !anyFill && this.sceneTime > 6 ? 'Touch a lantern with your shadow' : '';
   }
 
   // ------------------------------------------------------------ crocodile
   private spawnFirefly(): void {
-    const f = this.view.fireflies.find((x) => !x.alive && x.eaten === 0);
+    let f: FireflyView | null = null;
+    for (const x of this.view.fireflies) if (!x.alive && x.eaten === 0 && !f) f = x;
     if (!f) return;
     const side = this.rng() < 0.5 ? -1 : 1;
     f.x = side * (0.46 + this.rng() * 0.08);
@@ -695,7 +755,8 @@ export class Story {
       if (actor && actor.presentTime > 0.6) this.setBeat('feed');
     }
     if (this.beat === 'teach' || this.beat === 'feed') {
-      const alive = v.fireflies.filter((f) => f.alive).length;
+      let alive = 0;
+      for (const f of v.fireflies) if (f.alive) alive++;
       this.spawnTimer += dt;
       if (alive < 3 && this.spawnTimer > 1.3 && this.eaten + alive < this.eatTarget) {
         this.spawnTimer = 0;
@@ -798,7 +859,16 @@ export class Story {
       v.ghost.t = GROUND_T + 0.02;
       v.ghost.scale = (2 * g + 0.12) / 0.5;
       v.ghost.visible = approach(v.ghost.visible, needHelp ? 0.45 : 0, 2.5, dt);
-      v.caption = needHelp && this.round === 0 ? 'Make a bridge with your hand' : needHelp && this.round === 2 ? 'Bring your hand closer to the lantern' : '';
+      if (needHelp) this.waitTime += dt;
+      if (!this.plank.active && !this.plank.done && this.waitTime > (this.settings.gentle ? 9 : 16)) {
+        this.plank.active = true;
+        this.plank.t = 0;
+        this.plank.index = this.world.sceneryCount;
+        this.stats.assists++;
+        this.emit('whoosh', 0, GROUND_T);
+      }
+      if (this.plank.active) this.updatePlank(dt, g);
+      v.caption = needHelp && this.round === 0 ? 'Make a bridge with your hand' : needHelp && this.round === 2 ? 'Bring your hand back toward you to make it longer' : '';
       v.progress = (this.round + (r.x > 0 ? 0.5 : 0)) / this.rounds.length;
       if (r.state === 'home') {
         this.stats.crossings++;
@@ -832,15 +902,16 @@ export class Story {
   }
 
   // ------------------------------------------------------------- moon wolf
-  private readonly wolfThresholds = [1.25, 1.4, 1.55];
+  private readonly wolfThresholds = [1.2, 1.3, 1.4];
 
   /** Size the shadow must reach this round (gentle mode & assist lower it). */
   wolfThreshold(): number {
     const base = this.wolfThresholds[Math.min(this.wolfRound, this.wolfThresholds.length - 1)];
     const gentle = this.settings.gentle ? 0.15 : 0;
-    // Assist: after 10 s of trying, the wolf gets more timid, 0.04 per second.
-    const assist = Math.min(0.32, Math.max(0, this.roundTime - 10) * 0.04);
-    return Math.max(1.08, base - gentle - assist);
+    // Assist: after 8 s of trying, the wolf gets more timid, 0.05 per second,
+    // until simply holding a hand up in the light is enough.
+    const assist = Math.min(0.32, Math.max(0, this.roundTime - 8) * 0.05);
+    return Math.max(1.0, base - gentle - assist);
   }
 
   private updateWolf(dt: number, model: ShadowModel): void {
@@ -899,8 +970,8 @@ export class Story {
             ? ''
             : struggling
               ? this.wolfRound === 2
-                ? 'Raise both hands, or come closer to the lantern'
-                : 'Make yourself big: bring your hand close to the lantern'
+                ? 'Raise both hands, or bring them back toward you'
+                : 'Make yourself big: bring your hand back toward you'
               : '';
         v.progress = (this.wolfRound + (w.state === 'flee' ? 1 : 0)) / this.wolfThresholds.length;
         break;

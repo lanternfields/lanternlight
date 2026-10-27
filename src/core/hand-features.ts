@@ -105,10 +105,21 @@ export interface PoseScore {
   error: number;
 }
 
+const SCORE_VALUES = [0, 0, 0, 0, 0];
+const byError = (a: PoseScore, b: PoseScore): number => a.error - b.error;
+
 export function scorePoses(features: HandFeatures, out: PoseScore[]): PoseScore[] {
-  out.length = 0;
   const e = features.extension;
-  const values = [e.thumb, e.index, e.middle, e.ring, e.pinky];
+  const values = SCORE_VALUES;
+  values[0] = e.thumb;
+  values[1] = e.index;
+  values[2] = e.middle;
+  values[3] = e.ring;
+  values[4] = e.pinky;
+  // reuse the score objects (this runs every frame per hand)
+  while (out.length < TEMPLATES.length) out.push({ id: 'none', error: 0 });
+  out.length = TEMPLATES.length;
+  let k = 0;
   for (const t of TEMPLATES) {
     let sum = 0;
     let n = 0;
@@ -127,9 +138,11 @@ export function scorePoses(features: HandFeatures, out: PoseScore[]): PoseScore[
     if (t.minAperture !== undefined && features.aperture < t.minAperture) {
       error += (t.minAperture - features.aperture) * 1.5;
     }
-    out.push({ id: t.id, error });
+    const slot = out[k++];
+    slot.id = t.id;
+    slot.error = error;
   }
-  out.sort((a, b) => a.error - b.error);
+  out.sort(byError);
   return out;
 }
 
@@ -181,7 +194,8 @@ export class PoseClassifier {
     const scores = scorePoses(features, this.scores);
     // Keep the current pose while it is still within the hysteresis band.
     if (this.current !== 'none') {
-      const cur = scores.find((s) => s.id === this.current);
+      let cur: PoseScore | undefined;
+      for (const sc of scores) if (sc.id === this.current) cur = sc;
       if (cur && cur.error <= o.acceptError + o.hysteresis) {
         this.candidate = this.current;
         this.candidateTime = 0;

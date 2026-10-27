@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectDevice, initialQuality } from '../src/core/device.js';
+import { detectDevice, initialQuality, maxQuality, preferredFrameRate } from '../src/core/device.js';
 
 describe('device detection', () => {
   const ua = (model: string) => `Mozilla/5.0 (X11; Linux x86_64; ${model}) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/40.0 Chrome/130 VR Safari/537.36`;
@@ -14,6 +14,14 @@ describe('device detection', () => {
   it('older headsets start at lower quality', () => {
     expect(initialQuality('Quest (1st gen)')).toBe(0);
     expect(initialQuality('Quest 2')).toBe(1);
-    expect(initialQuality('Quest 3')).toBe(2);
+    expect(initialQuality('Quest 3')).toBe(3);
+    expect(maxQuality('Quest 2')).toBe(2);
+    expect(maxQuality('Quest (1st gen)')).toBe(1);
+  });
+  it('asks for 90 Hz only where there is headroom', () => {
+    expect(preferredFrameRate('Quest 3', new Float32Array([72, 80, 90, 120]))).toBe(90);
+    expect(preferredFrameRate('Quest 2', new Float32Array([72, 90]))).toBeNull();
+    expect(preferredFrameRate('Quest 3', undefined)).toBeNull();
+    expect(preferredFrameRate('desktop', [60])).toBeNull();
   });
 });

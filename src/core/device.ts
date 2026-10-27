@@ -17,5 +17,19 @@ export function detectDevice(ua: string): string {
 export function initialQuality(device: string): number {
   if (device === 'Quest (1st gen)') return 0;
   if (device === 'Quest 2' || device === 'Meta headset') return 1;
-  return 2;
+  return 3;
+}
+
+/** Highest quality level a device may climb to. */
+export function maxQuality(device: string): number {
+  if (device === 'Quest (1st gen)') return 1;
+  if (device === 'Quest 2' || device === 'Meta headset') return 2;
+  return 3;
+}
+
+/** Refresh rate to request: 90 Hz where the GPU has room for it, else the default. */
+export function preferredFrameRate(device: string, supported: ArrayLike<number> | undefined | null): number | null {
+  if (!supported || supported.length === 0) return null;
+  if (device === 'Quest (1st gen)' || device === 'Quest 2' || device === 'Meta headset') return null;
+  return Array.from(supported).includes(90) ? 90 : null;
 }

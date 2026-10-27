@@ -29,9 +29,9 @@ export class ShowSystem extends createSystem({}) {
 export class HandVisualSystem extends createSystem({}) {
   update(): void {
     if (!app) return;
-    const show = app.emulated && app.phase !== 'landing';
-    // On a headset, passthrough already shows your real hands and
-    // controllers; only the emulator needs stand-ins.
+    // In passthrough you see your real hands and controllers; the emulator and
+    // the virtual theatre (no passthrough) need stand-ins (review M7).
+    const show = (app.emulated || app.session.mode === 'vr') && app.phase !== 'landing';
     const adapters = this.input.xr.visualAdapters;
     for (const side of ['left', 'right'] as const) {
       const hand = adapters.hand[side].visual?.model;

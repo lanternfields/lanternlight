@@ -188,6 +188,17 @@ export class MenuButton {
   }
 }
 
+// order: [continue, tales, leave] on top, [dim, gentle, stage here] below, HUD above
+const MENU_SLOTS: readonly (readonly [number, number])[] = [
+  [-1, 1],
+  [0, 1],
+  [-1, 0],
+  [0, 0],
+  [1, 0],
+  [1, 1],
+  [0, 2],
+];
+
 export class LanternMenu {
   readonly group = new Group();
   readonly buttons: MenuButton[];
@@ -205,16 +216,7 @@ export class LanternMenu {
   layout(time: number, reduceMotion: boolean): void {
     const n = this.buttons.length;
     const ease = this.t * this.t * (3 - 2 * this.t);
-    // order: [continue, tales, leave] on top, [dim, gentle, stage here] below
-    const slots = [
-      [-1, 1],
-      [0, 1],
-      [-1, 0],
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, 2],
-    ];
+    const slots = MENU_SLOTS;
     for (let i = 0; i < n; i++) {
       const b = this.buttons[i];
       const [col, row] = slots[i];

@@ -2,8 +2,7 @@
  * Frame-time statistics and the adaptive quality controller.
  *
  * Quest 3 WebXR budget: 13.9 ms at 72 Hz, 11.1 ms at 90 Hz. The controller
- * steps quality down when the p90 frame time stays above the budget and back up
- * after a long stretch of headroom (asymmetric hysteresis, so it never flaps).
+ * counts missed vsyncs against the display's real period (see AdaptiveQuality).
  */
 
 export class FrameStats {
@@ -79,88 +78,155 @@ export interface QualityLevel {
   foveation: number;
 }
 
+/**
+ * Quality only ever trades resolution and foveation: the look (soft edges,
+ * paper grain on the scroll) stays the same at every level because the
+ * penumbra is specified in stage units.
+ */
 export const QUALITY_LEVELS: readonly QualityLevel[] = [
-  { level: 0, stageResolution: 256, particles: 12, shaderDetail: false, foveation: 1 },
-  { level: 1, stageResolution: 384, particles: 24, shaderDetail: true, foveation: 0.75 },
-  { level: 2, stageResolution: 512, particles: 48, shaderDetail: true, foveation: 0.5 },
+  { level: 0, stageResolution: 384, particles: 12, shaderDetail: true, foveation: 1 },
+  { level: 1, stageResolution: 512, particles: 24, shaderDetail: true, foveation: 0.75 },
+  { level: 2, stageResolution: 768, particles: 48, shaderDetail: true, foveation: 0.5 },
+  { level: 3, stageResolution: 1024, particles: 48, shaderDetail: true, foveation: 0.35 },
 ];
 
 export interface AdaptiveOptions {
-  /** Frame budget in ms (stepping down above this). */
-  budgetMs: number;
-  /** Step up only when p90 is below this. */
-  headroomMs: number;
+  /** Fraction of missed vsyncs (smoothed) that counts as "over budget". */
+  downMissRate: number;
+  /** Fraction of missed vsyncs below which a step up may be tried. */
+  upMissRate: number;
   /** Seconds over budget before stepping down. */
   downAfter: number;
-  /** Seconds of headroom before stepping up. */
+  /** Seconds of clean frames before stepping up (doubles after each failed try). */
   upAfter: number;
   /** Ignore the first seconds of a session (shader compiles, asset uploads). */
   warmup: number;
+  /** Time constant (s) of the smoothed miss rate. */
+  tau: number;
 }
 
 export const DEFAULT_ADAPTIVE: AdaptiveOptions = {
-  budgetMs: 14,
-  headroomMs: 10,
-  downAfter: 2,
-  upAfter: 8,
+  downMissRate: 0.12,
+  upMissRate: 0.02,
+  downAfter: 1.5,
+  upAfter: 6,
   warmup: 3,
+  tau: 1.0,
 };
 
+/** Common display refresh periods (ms): 120, 90, 80, 72, 60 Hz. */
+const PERIODS = [1000 / 120, 1000 / 90, 1000 / 80, 1000 / 72, 1000 / 60];
+
+/** Snaps a measured frame interval to the nearest common refresh period. */
+export function snapPeriod(ms: number): number {
+  let best = PERIODS[0];
+  for (const p of PERIODS) if (Math.abs(p - ms) < Math.abs(best - ms)) best = p;
+  return best;
+}
+
+/**
+ * Adaptive quality from **missed vsyncs**, not raw frame times: a frame counts
+ * as missed when its interval exceeds 1.5 display periods. The period comes
+ * from the XR session (XRSession.frameRate) when known, otherwise from the
+ * fastest recent intervals snapped to a common refresh rate, so ordinary
+ * timer jitter at 72/90 Hz never looks like a missed frame.
+ *
+ * Hysteresis: step down after downAfter s above downMissRate; step up after
+ * upAfter s below upMissRate. A level that failed before waits twice as long
+ * before it is retried (capped at 60 s), so the controller never flaps.
+ */
 export class AdaptiveQuality {
   level: number;
+  /** Highest level this device may use. */
+  maxLevel: number;
+  /** Display period in ms (0 = estimate from the frames). */
+  periodMs = 0;
   readonly stats = new FrameStats(120);
-  readonly changes: { t: number; from: number; to: number; p90: number }[] = [];
+  readonly changes: { t: number; from: number; to: number; missRate: number }[] = [];
+  /** Smoothed fraction of frames that missed vsync. */
+  missRate = 0;
   private over = 0;
   private under = 0;
   private elapsed = 0;
   private sinceChange = 0;
+  private readonly failures: number[] = QUALITY_LEVELS.map(() => 0);
 
   constructor(
     public options: AdaptiveOptions = DEFAULT_ADAPTIVE,
     initialLevel = QUALITY_LEVELS.length - 1,
   ) {
     this.level = initialLevel;
+    this.maxLevel = QUALITY_LEVELS.length - 1;
   }
 
   get current(): QualityLevel {
     return QUALITY_LEVELS[this.level];
   }
 
-  /** Feed one frame. Returns true if the level changed. */
+  /** The period used to judge frames (ms). */
+  period(): number {
+    if (this.periodMs > 0) return this.periodMs;
+    if (this.stats.count < 10) return 1000 / 60;
+    return snapPeriod(this.stats.percentile(10));
+  }
+
+  /** Clears the measurements (new session, after a pause). */
+  reset(): void {
+    this.stats.reset();
+    this.missRate = 0;
+    this.over = 0;
+    this.under = 0;
+    this.elapsed = 0;
+    this.sinceChange = 0;
+  }
+
+  /** Feed one frame interval. Returns true if the level changed. */
   update(frameMs: number, dt: number): boolean {
     this.elapsed += dt;
     this.sinceChange += dt;
     if (this.elapsed < this.options.warmup) return false;
     this.stats.push(frameMs);
     if (this.stats.count < 30) return false;
-    const p90 = this.stats.percentile(90);
-    if (p90 > this.options.budgetMs) {
+    const o = this.options;
+    if (this.level > this.maxLevel) {
+      this.setLevel(this.maxLevel);
+      return true;
+    }
+    const missed = frameMs > this.period() * 1.5 ? 1 : 0;
+    const a = 1 - Math.exp(-dt / o.tau);
+    this.missRate += (missed - this.missRate) * a;
+    if (this.missRate > o.downMissRate) {
       this.over += dt;
       this.under = 0;
-    } else if (p90 < this.options.headroomMs) {
+    } else if (this.missRate < o.upMissRate) {
       this.under += dt;
-      this.over = 0;
+      this.over = Math.max(0, this.over - dt);
     } else {
       this.over = Math.max(0, this.over - dt);
-      this.under = Math.max(0, this.under - dt);
+      this.under = 0;
     }
-    if (this.over >= this.options.downAfter && this.level > 0 && this.sinceChange > 1) {
-      this.setLevel(this.level - 1, p90);
+    if (this.over >= o.downAfter && this.level > 0 && this.sinceChange > 1) {
+      this.failures[this.level]++;
+      this.setLevel(this.level - 1);
       return true;
     }
-    if (this.under >= this.options.upAfter && this.level < QUALITY_LEVELS.length - 1) {
-      this.setLevel(this.level + 1, p90);
-      return true;
+    if (this.level < this.maxLevel) {
+      const wait = Math.min(60, o.upAfter * Math.pow(2, this.failures[this.level + 1]));
+      if (this.under >= wait) {
+        this.setLevel(this.level + 1);
+        return true;
+      }
     }
     return false;
   }
 
-  private setLevel(to: number, p90: number): void {
-    this.changes.push({ t: Math.round(this.elapsed * 10) / 10, from: this.level, to, p90: Math.round(p90 * 100) / 100 });
+  private setLevel(to: number): void {
+    this.changes.push({ t: Math.round(this.elapsed * 10) / 10, from: this.level, to, missRate: Math.round(this.missRate * 100) / 100 });
     this.level = to;
     this.over = 0;
     this.under = 0;
     this.sinceChange = 0;
-    this.stats.reset();
+    // keep the interval history (the period estimate) but restart the miss rate
+    this.missRate = 0;
   }
 }

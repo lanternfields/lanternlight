@@ -23,7 +23,15 @@ declare global {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-World.create($('scene-container') as HTMLDivElement, projectOptions).then(async (world) => {
+World.create($('scene-container') as HTMLDivElement, projectOptions)
+  .then(start)
+  .catch((err) => {
+    console.error('[lanternlight] failed to start', err);
+    const notice = document.getElementById('notice');
+    if (notice) notice.textContent = 'Lanternlight could not load in this browser. Please open it in the Meta Quest Browser.';
+  });
+
+async function start(world: World): Promise<void> {
   const params = new URLSearchParams(location.search);
   const tester = params.has('tester');
   const app = new App(world, { tester });
@@ -58,10 +66,16 @@ World.create($('scene-container') as HTMLDivElement, projectOptions).then(async 
   });
 
   let vrFallback = params.has('vr');
-  const startXR = () => {
+  const startXR = async () => {
     app.audio.start(); // inside the user gesture so audio may play
     notice.textContent = '';
-    world.launchXR(vrFallback ? { sessionMode: SessionMode.ImmersiveVR } : undefined);
+    try {
+      await Promise.resolve(world.launchXR(vrFallback ? { sessionMode: SessionMode.ImmersiveVR } : undefined));
+    } catch (err) {
+      console.warn('[lanternlight] could not start XR', err);
+      notice.textContent =
+        "The show couldn't start. Check that the headset's browser allows immersive mode, then press Begin again.";
+    }
   };
   begin.addEventListener('click', startXR);
 
@@ -105,4 +119,4 @@ World.create($('scene-container') as HTMLDivElement, projectOptions).then(async 
     begin: startXR,
     settings: (patch) => app.updateSettings(patch as never),
   };
-});
+}

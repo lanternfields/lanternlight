@@ -204,8 +204,22 @@
     pinchTarget: 0,
     pinchRate: 7,
     pos: null,
+    vel: [0, 0, 0],
     rot: { pitch: 60, yaw: 0, roll: 0 },
+    rotVel: { pitch: 0, yaw: 0, roll: 0 },
     tau: 0.16,
+  };
+  // Damped springs (zeta 0.85: moves ease in, ease out and overshoot a touch).
+  const ZETA = 0.85;
+  const springStep = (x, v, goal, omega, dt) => {
+    const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      const acc = omega * omega * (goal - x) - 2 * ZETA * omega * v;
+      v += acc * h;
+      x += v * h;
+    }
+    return [x, v];
   };
   let time = 0;
   const tremor = (t, k) =>
@@ -229,12 +243,10 @@
       goal = throughLight(ctl.target[0] + ctl.off[0], ctl.target[1] + ctl.off[1], m);
     }
     if (!ctl.pos) ctl.pos = [...goal];
-    const a = 1 - Math.exp(-dt / ctl.tau);
-    for (let i = 0; i < 3; i++) ctl.pos[i] += (goal[i] - ctl.pos[i]) * a;
-    const r = 1 - Math.exp(-dt / 0.22);
-    ctl.rot.pitch += (ctl.euler.pitch - ctl.rot.pitch) * r;
-    ctl.rot.yaw += (ctl.euler.yaw - ctl.rot.yaw) * r;
-    ctl.rot.roll += (ctl.euler.roll - ctl.rot.roll) * r;
+    // omega from the old lag constant: a similar settle time, but no velocity jumps
+    const omega = 1.6 / ctl.tau;
+    for (let i = 0; i < 3; i++) [ctl.pos[i], ctl.vel[i]] = springStep(ctl.pos[i], ctl.vel[i], goal[i], omega, dt);
+    for (const k of ['pitch', 'yaw', 'roll']) [ctl.rot[k], ctl.rotVel[k]] = springStep(ctl.rot[k], ctl.rotVel[k], ctl.euler[k], 7.5, dt);
     ctl.pinch += (ctl.pinchTarget - ctl.pinch) * (1 - Math.exp(-dt * ctl.pinchRate));
     // apply with a tiny living tremor
     const tr = 0.0011;
@@ -278,6 +290,12 @@
   const icon = (id) => S().view.icons.find((i) => i.id === id);
   const marks = [];
   const mark = (label) => marks.push({ label, t: +time.toFixed(2) });
+  let snapLabel = null;
+  const snap = (label) => {
+    snapLabel = label;
+    mark('snap:' + label);
+  };
+  const goto = (scene) => window.__lantern.goto(scene);
 
   function* chooseTale(id) {
     yield* until(() => S().scene === 'menu', 30);
@@ -397,13 +415,104 @@
     mark('end');
   }
 
+  // ------------------------------------------------ stills for the style audit
+  function* tale3(id, prefix) {
+    yield* wait(0.5);
+    snap(prefix + '-0.5');
+    yield* wait(1.0);
+    snap(prefix + '-1.5');
+    yield* wait(1.5);
+    snap(prefix + '-3.0');
+  }
+  function* stills() {
+    goto('intro');
+    setPose('relaxed', 0.1);
+    rest();
+    yield* until(() => S().beat === 'wave', 20);
+    yield* wait(1.6);
+    snap('prologue-ghost-wave');
+    setPose('open', 0.8);
+    orient(60, 0, 0);
+    ctl.tau = 0.35;
+    shadowTo(0.04, 0.02);
+    yield* wait(2.0);
+    snap('prologue-hand');
+    ctl.tau = 0.16;
+    yield* until(() => S().beat === 'rabbitHint', 15);
+    yield* wait(1.5);
+    snap('prologue-ghost-rabbit');
+    setPose('peace', 0.5);
+    yield* until(() => S().stats.rabbitBirths > 0, 20);
+    yield* wait(1.3);
+    snap('prologue-rabbit');
+    setPose('open', 0.6);
+    shadowTo(0.3, -0.12);
+    yield* until(() => S().scene === 'menu', 20);
+    yield* wait(2.4);
+    snap('menu');
+    // The Hungry Crocodile: the hand is already a crocodile when it starts
+    setPose('relaxed', 0.4);
+    orient(40, 0, -70);
+    shadowTo(-0.12, 0.04, { feature: 'mouth' });
+    yield* wait(0.8);
+    goto('croc');
+    yield* tale3('croc', 'croc');
+    const ff = () => S().view.fireflies.find((f) => f.alive && f.glow > 0.5);
+    yield* until(() => !!ff(), 6);
+    const f = ff();
+    if (f) {
+      shadowTo(f.x, f.y, { feature: 'mouth' });
+      yield* wait(1.0);
+      ctl.pinchRate = 14;
+      ctl.pinchTarget = 1;
+      yield* wait(0.12);
+      snap('croc-chomp');
+      yield* wait(0.3);
+      ctl.pinchRate = 6;
+      ctl.pinchTarget = 0;
+      yield* wait(0.5);
+    }
+    // Rabbit's Bridge
+    setPose('relaxed', 0.5);
+    rest();
+    goto('bridge');
+    yield* tale3('bridge', 'bridge');
+    setPose('flat', 0.6);
+    orient(-30, 90, 0);
+    ctl.tau = 0.3;
+    shadowTo(0.0, -0.37, { feature: 'handTop', size: 1.0 });
+    yield* until(() => S().rabbit.onShadow, 12);
+    yield* wait(0.3);
+    snap('bridge-play');
+    ctl.tau = 0.16;
+    // The Moon Wolf
+    setPose('relaxed', 0.5);
+    rest();
+    goto('wolf');
+    yield* tale3('wolf', 'wolf');
+    setPose('open', 0.5);
+    orient(60, 0, 0);
+    shadowTo(-0.05, 0.02, { size: 1 });
+    yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.6, 12);
+    ctl.tau = 0.32;
+    ctl.size = 1.6;
+    yield* until(() => S().wolf.state === 'cower' || S().wolf.state === 'flee', 8);
+    yield* wait(0.3);
+    snap('wolf-scare');
+    ctl.size = 1;
+    rest();
+    goto('finale');
+    yield* wait(3.4);
+    snap('finale');
+  }
+
   applyBlend();
   let gen = null;
   let done = false;
   window.__director = {
     marks,
     start(name = 'coreLoop') {
-      gen = { coreLoop }[name]();
+      gen = { coreLoop, stills }[name]();
       gen.next(0);
       done = false;
       time = 0;
@@ -418,7 +527,9 @@
       if (r.done) done = true;
       control(dt);
       const s = S();
-      return { done, t: time, scene: s.scene, beat: s.beat };
+      const snapNow = snapLabel;
+      snapLabel = null;
+      return { done, t: time, scene: s.scene, beat: s.beat, snap: snapNow };
     },
     get time() {
       return time;

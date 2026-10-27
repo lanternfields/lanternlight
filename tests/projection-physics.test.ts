@@ -72,7 +72,23 @@ describe('projection', () => {
     }
     for (const s of sizes) {
       expect(s).toBeGreaterThan(0.3);
-      expect(s).toBeLessThan(0.62);
+      expect(s).toBeLessThan(0.72);
+    }
+  });
+
+  it('pulling the hand ~20 cm back toward you makes the shadow ~1.4x bigger at any wall (review H2/M4)', () => {
+    const head = new V3(0, 1.2, 0);
+    for (const d of [0.8, 1.5, 2.2, 3.2]) {
+      const st = wallStage(d);
+      const light = computeFocalLight(st, head, new V3());
+      const size = (z: number) => {
+        const a = createProjected();
+        const b = createProjected();
+        projectToStage(new V3(0, 0.98 - 0.095, z), light, st, a);
+        projectToStage(new V3(0, 0.98 + 0.095, z), light, st, b);
+        return b.t - a.t;
+      };
+      expect(size(-0.22) / size(-0.42)).toBeGreaterThan(1.3);
     }
   });
 

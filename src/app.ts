@@ -36,7 +36,7 @@ import { RodPuppetVisual } from './render/rod-puppet.js';
 import { HudData, TesterHud } from './render/tester-hud.js';
 import { VirtualTheatre } from './render/virtual-theatre.js';
 
-import { detectDevice, initialQuality } from './core/device.js';
+import { detectDevice, initialQuality, maxQuality, preferredFrameRate } from './core/device.js';
 export { detectDevice, initialQuality };
 
 export const BUILD: string = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
@@ -90,7 +90,7 @@ export class App {
   readonly hud = new TesterHud();
   readonly tester: boolean;
   /** What a tester has tried this session (auto-ticked checklist). */
-  readonly tried = { left: false, right: false, controllers: false, menu: false, moved: false };
+  readonly tried = { left: false, right: false, controllers: false, menu: false, moved: false, recentered: false };
   readonly puppets = [new RodPuppetVisual('left'), new RodPuppetVisual('right')];
   /** Controller rays (world): origin xyz + direction xyz per hand. */
   readonly rays = [new Float32Array(6), new Float32Array(6)];
@@ -103,11 +103,17 @@ export class App {
   private menuCooldown = 0;
   private readonly buttonArmed: boolean[] = [];
   readonly menuLog: MenuAction[] = [];
-  readonly quality = new AdaptiveQuality({ budgetMs: 14, headroomMs: 10, downAfter: 1, upAfter: 8, warmup: 2 });
+  readonly quality = new AdaptiveQuality();
   readonly frameStats = new FrameStats(600);
   readonly cpuStats = new FrameStats(600);
 
   private readonly jointCache = new Map<XRInputSource, JointCache>();
+  private readonly handSeenAt = [0, 0];
+  /** Seconds the head has been steady while a re-place waits (review M5). */
+  private replaceSteady = 0;
+  private replaceWait = 0;
+  private readonly lastForward = new V3(0, 0, -1);
+  private listenedRef: XRReferenceSpace | null = null;
   private readonly tmpM = new Matrix4();
   private readonly tmpM2 = new Matrix4();
   private readonly tmpV = new Vector3();
@@ -195,6 +201,9 @@ export class App {
       else if (this.phase === 'paused') {
         this.phase = 'show';
         this.audio.resume();
+        // the pause itself is not a slow frame
+        this.quality.reset();
+        this.lastFrameAt = 0;
       }
       try {
         this.world.renderer.xr.setFoveation(this.quality.current.foveation);
@@ -221,6 +230,9 @@ export class App {
     this.session.hitTest = false;
     this.theatre.group.visible = this.session.mode === 'vr';
     this.quality.level = Math.min(this.quality.level, initialQuality(this.device));
+    this.quality.maxLevel = maxQuality(this.device);
+    this.quality.reset();
+    this.requestFrameRate(session);
     if (session && this.session.mode === 'ar') {
       session
         .requestReferenceSpace('viewer')
@@ -238,8 +250,24 @@ export class App {
     this.placement = null;
     this.audio.start();
     this.audio.setVolume(this.settings.volume);
-    this.quality.stats.reset();
+    // Entering XR from the browser's own button skips Begin: resume audio on
+    // the first select/squeeze (a user gesture) as well.
+    if (session) {
+      const resume = () => this.audio.start();
+      session.addEventListener('selectstart', resume, { once: true });
+      session.addEventListener('squeezestart', resume, { once: true });
+    }
     if (this.story.scene !== 'intro' || this.story.beat !== 'dim') this.story.enter('intro');
+  }
+
+  /** Asks for 90 Hz where the device has headroom; the quality controller follows the real rate. */
+  private requestFrameRate(session: XRSession | undefined | null): void {
+    const s = session as (XRSession & { supportedFrameRates?: Float32Array; frameRate?: number; updateTargetFrameRate?: (r: number) => Promise<void> }) | null | undefined;
+    if (!s) return;
+    const want = preferredFrameRate(this.device, s.supportedFrameRates);
+    if (want && s.updateTargetFrameRate && s.frameRate !== want) {
+      s.updateTargetFrameRate(want).catch(() => undefined);
+    }
   }
 
   private endShow(): void {
@@ -272,6 +300,7 @@ export class App {
 
     for (const h of this.hands) h.tracked = false;
     for (const r of this.rods) r.connected = false;
+    const nowMs = performance.now();
     this.rayValid[0] = this.rayValid[1] = false;
     if (!frame || !ref || !session) {
       this.inputMode = 'none';
@@ -314,6 +343,7 @@ export class App {
           if (r > 0.001 && r < 0.05) hand.radii[i] = r;
         }
         hand.tracked = true;
+        this.handSeenAt[handed] = nowMs;
         anyHand = true;
       } else if (source.gripSpace) {
         const pose = frame.getPose(source.gripSpace, ref);
@@ -348,6 +378,10 @@ export class App {
         }
       }
     }
+    this.holdLostHands(nowMs);
+    if (this.hands[0].tracked || this.hands[1].tracked) anyHand = true;
+    this.pruneJointCache(session);
+    this.watchReferenceReset();
     this.inputMode = anyHand ? 'hands' : anyController ? 'controllers' : 'none';
     this.captureHitTest(frame, ref, pm);
     if (this.hands[0].tracked) this.tried.left = true;
@@ -388,6 +422,29 @@ export class App {
       new V3(p.x - tx * 1.5, p.y + 1.3, p.z - tz * 1.5),
     ];
     return { id: 'hit-test', orientation: 'vertical', label: 'wall', points: pts, normal: new V3(n.x / l, 0, n.z / l) };
+  }
+
+  /**
+   * Tracking-loss grace: a hand that drops out for a moment (fast motion,
+   * fingers occluding each other) keeps its last pose for up to 200 ms, so its
+   * shadow doesn't blink and the story doesn't see the hand leave.
+   */
+  private holdLostHands(nowMs: number): void {
+    for (let h = 0; h < 2; h++) {
+      const hand = this.hands[h];
+      if (!hand.tracked && this.handSeenAt[h] > 0 && nowMs - this.handSeenAt[h] < 200) hand.tracked = true;
+    }
+  }
+
+  /** Drops cached joint spaces of input sources that have gone away. */
+  private pruneJointCache(session: XRSession): void {
+    if (this.jointCache.size <= 2) return;
+    const live = session.inputSources;
+    for (const src of [...this.jointCache.keys()]) {
+      let found = false;
+      for (const s of live) if (s === src) found = true;
+      if (!found) this.jointCache.delete(src);
+    }
   }
 
   private jointsFor(source: XRInputSource): JointCache {
@@ -543,10 +600,11 @@ export class App {
       this.placementLockedAt = this.sessionTime;
     }
 
-    if (this.replacePending) {
+    if (this.replacePending && this.readyToReplace(dt)) {
       this.replacePending = false;
       this.place();
     }
+    this.lastForward.copy(this.headForward);
     const fr = this.placement!.frame;
     const needPose = this.story.scene === 'intro' || this.story.scene === 'menu';
     this.model.head.copy(this.head);
@@ -562,7 +620,9 @@ export class App {
     const view = this.story.view;
     const reduce = this.settings.reduceMotion;
 
-    // Quality adaptation from real frame intervals.
+    // Quality adaptation: missed vsyncs against the session's real refresh rate.
+    const rate = (this.world.session as (XRSession & { frameRate?: number }) | undefined)?.frameRate;
+    this.quality.periodMs = rate && rate > 0 ? 1000 / rate : 0;
     if (frameMs > 0 && this.quality.update(frameMs, dt)) {
       const q = this.quality.current;
       this.stage.setLayout(fr.aspect, q.stageResolution);
@@ -668,7 +728,7 @@ export class App {
       const speed = dt > 0 ? Math.hypot(tip.x - last.x, tip.y - last.y, tip.z - last.z) / dt : 0;
       last.copy(tip);
       const d = Math.hypot(tip.x - flame.x, tip.y - flame.y, tip.z - flame.z);
-      if (d < 0.075 && speed < 0.45) near = true;
+      if (d < 0.075 && speed < 0.45 && !this.story.sizeBeat) near = true;
     }
     if (!near) {
       this.tapArmed = true;
@@ -857,9 +917,39 @@ export class App {
     };
   }
 
-  /** Re-place the stage and lantern where the viewer is now looking. */
+  /**
+   * Re-place the stage and lantern where the viewer is looking - once the
+   * menu has closed and the head has been steady for a moment (so the stage
+   * doesn't land where the menu was).
+   */
   requestReplace(): void {
     this.replacePending = true;
+    this.replaceSteady = 0;
+    this.replaceWait = 0;
+  }
+
+  /** True when the head has been steady (< 12 deg/s) for 0.7 s, or after 6 s. */
+  private readyToReplace(dt: number): boolean {
+    if (this.menu.open) return false;
+    this.replaceWait += dt;
+    const f = this.headForward;
+    const l = this.lastForward;
+    const dotp = Math.min(1, Math.max(-1, f.x * l.x + f.y * l.y + f.z * l.z));
+    const degPerS = dt > 0 ? (Math.acos(dotp) * 180) / Math.PI / dt : 0;
+    if (degPerS < 12) this.replaceSteady += dt;
+    else this.replaceSteady = 0;
+    return (this.replaceWait > 0.8 && this.replaceSteady > 0.7) || this.replaceWait > 6;
+  }
+
+  /** Quest recenter / reference-space reset: the stage would float, so re-place it (review M6). */
+  private watchReferenceReset(): void {
+    const ref = this.world.xrReferenceSpace as XRReferenceSpace | undefined;
+    if (!ref || ref === this.listenedRef) return;
+    this.listenedRef = ref;
+    ref.addEventListener('reset', () => {
+      this.tried.recentered = true;
+      this.requestReplace();
+    });
   }
 
   /** Test/demo hook: jump to a scene. */

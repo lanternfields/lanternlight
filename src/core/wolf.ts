@@ -1,6 +1,6 @@
 /**
  * The Moon Wolf: a shadow wolf prowls toward the rabbit; it cowers, then
- * flees, when your shadow is big enough (bring your hand toward the lantern,
+ * flees, when your shadow is big enough (bring your hand back toward you,
  * or raise both hands). It comes back a little bolder each time. It never
  * hurts anyone: if it reaches the rabbit it just sits there and grumbles.
  */

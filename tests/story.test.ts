@@ -216,6 +216,58 @@ describe("story: rabbit's bridge", () => {
   });
 });
 
+describe('story: never stuck (review H3, bridge assist)', () => {
+  it('the non-dominant hand in the light passes the prologue while the dominant one rests outside it', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    run(story, model, 3);
+    expect(story.beat).toBe('wave');
+    const right = model.actors[1];
+    const left = new FakeHand(model);
+    // left hand performs in the light (drive actors[0] by swapping)
+    run(story, model, 2, () => {
+      left.set(0, 0);
+      // move what FakeHand wrote to the left actor, and park the right hand outside the pool
+      const a = model.actors[1];
+      const l = model.actors[0];
+      Object.assign(l, { present: true, presentTime: a.presentTime, centroidS: 0, centroidT: 0, pose: 'open' });
+      model.capsules[0].actor = 0;
+      right.present = true;
+      right.centroidS = 0.95;
+      right.centroidT = -0.6;
+    });
+    expect(['play', 'rabbitHint']).toContain(story.beat);
+  });
+
+  it('with no hand at all the prologue still moves on (assist timeouts)', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    run(story, model, 70);
+    expect(story.scene).toBe('menu');
+    expect(story.stats.assists).toBeGreaterThan(0);
+  });
+
+  it('if nobody builds a bridge, a paper plank drops in and the rabbit crosses', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    story.enter('bridge');
+    const ev = run(story, model, 40);
+    expect(story.stats.assists).toBeGreaterThan(0);
+    expect(story.stats.crossings).toBeGreaterThanOrEqual(1);
+    expect(ev).not.toContain('splash');
+  });
+
+  it('size beats are flagged so lantern taps are ignored', () => {
+    const story = new Story();
+    story.enter('wolf');
+    const model = new ShadowModel();
+    run(story, model, 3);
+    expect(story.sizeBeat).toBe(true);
+    story.enter('croc');
+    expect(story.sizeBeat).toBe(false);
+  });
+});
+
 describe('progress', () => {
   it('discovers the rabbit and counts visits', () => {
     const progress = createProgress();

@@ -115,7 +115,7 @@ try {
     const rounds = s.stats.crossings;
     if (rounds !== lastRound) {
       lastRound = rounds;
-      // Bigger gaps need a bigger shadow: bring the hand toward the lantern.
+      // Bigger gaps need a bigger shadow: bring the hand back toward the viewer (the light).
       bar = { ...bar, z: [-0.42, -0.36, -0.28][Math.min(rounds, 2)] };
       const res = await steer(page, bar, [0.0, -0.36 - 0.01], { which: 'handTop', iterations: 8, tolerance: 0.012 });
       bar = res.hand;
@@ -130,7 +130,7 @@ try {
   await waitFor(page, `(s) => s.scene === 'menu'`, 30000);
   await page.waitForTimeout(1500);
 
-  // The Moon Wolf: make yourself big when the wolf prowls (hand toward the lantern).
+  // The Moon Wolf: make yourself big when the wolf prowls (hand back toward the viewer).
   s = await snap(page);
   const wolfIcon = s.view.icons.find((i) => i.id === 'wolf');
   const r4 = await steer(page, { ...base }, [wolfIcon.s, wolfIcon.t]);

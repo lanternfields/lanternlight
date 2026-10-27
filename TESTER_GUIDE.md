@@ -36,13 +36,14 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 - **Feed the crocodile.** Hold your shadow on a glowing circle to open a tale. Open your hand,
   then pinch your thumb and fingers together to bite the fireflies.
 - **Rabbit's bridge.** Hold your hand flat and sideways so its shadow makes a bridge over the
-  river. For the last river, bring your hand closer to the lantern to make the shadow bigger.
+  river. For the last river, bring your hand back toward you to make the shadow longer.
+  (If nobody helps for a while, a paper plank drops in, so the rabbit always gets home.)
 - **Use both hands** at some point (either hand can perform).
 - **Try controllers**: pick them up. They become shadow puppets on sticks, and the trigger bites.
 - **Lantern menu**: rest a fingertip on the lantern for about half a second. Try *Dim*, and
-  *Stage here* (look at another spot first, then press it).
+  *Stage here* (press it, then look at where you want the stage and hold still for a moment).
 - **The Moon Wolf**: when the wolf creeps toward the rabbit, make your shadow big by bringing
-  your hand close to the lantern, or raise both hands.
+  your hand back toward you (toward your chest), or raise both hands.
 
 ## Recording (please, if you can)
 

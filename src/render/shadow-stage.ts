@@ -447,7 +447,8 @@ export class ShadowStage {
       if (icon.id === 'croc') {
         // the croc puppet spans ~0.4 m; fit it inside the ring
         const k = (icon.r * 1.45) / 0.18;
-        for (const part of CROC_ROD_PUPPET.slice(1)) {
+        for (let pi = 1; pi < CROC_ROD_PUPPET.length; pi++) {
+          const part = CROC_ROD_PUPPET[pi];
           this.details.pushRaw(
             icon.s + (part.a[0] + 0.02) * k,
             icon.t + (part.a[1] - 0.2) * k,
@@ -463,7 +464,7 @@ export class ShadowStage {
         this.details.pushRaw(icon.s - 0.07, icon.t - 0.045, icon.s + 0.07, icon.t - 0.045, 0.006, 0.003, icon.visible);
       }
     }
-    const wolfIcon = view.icons.find((i) => i.id === 'wolf');
+    const wolfIcon = view.icons[2];
     const iw = this.iconWolf;
     if (wolfIcon && view.scene === 'menu' && wolfIcon.visible > 0.05) {
       iw.update(wolfIcon.s + 0.005, wolfIcon.t - 0.05, 1, 'howl', 0.35, 0, 1, time);
