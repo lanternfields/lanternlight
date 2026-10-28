@@ -46,8 +46,8 @@ export { detectDevice, initialQuality };
 export const BUILD: string = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
 import { J } from './core/hand-model.js';
 
-/** Candidate ribbon centres (s, t), in order of preference: up in the light, then under the stage. */
-const RIBBON_SPOTS = [0, 0.31, 0, 0.39, -0.3, 0.33, 0.3, 0.33, 0, 0.47, 0, -0.64];
+/** The storyteller's one fixed slot (s, t): the top band of the light, inside the stage. */
+const RIBBON_SPOTS = [0, 0.37];
 
 export type Phase = 'landing' | 'placing' | 'show' | 'paused';
 
@@ -92,11 +92,8 @@ export class App {
   /** Music level of the last frame (the capture's soundtrack replays it). */
   lastMusic = 0;
   /** Where the ribbon sits: a spot clear of every shadow and character (it never glides across them). */
-  private ribbonSpot = 0;
   private ribbonLine = -1;
   private ribbonFade = 1;
-  private ribbonMoving = false;
-  private ribbonBlocked = 0;
   private ribbonHold = 0;
   private readonly occupied: number[] = [];
   private readonly spotOverlap = new Float32Array(RIBBON_SPOTS.length / 2);
@@ -855,41 +852,27 @@ export class App {
     const a = tv.lineAlpha;
     const reveal = this.lineLeaving ? 1 : 1 - Math.pow(1 - a, 3);
     if (tv.line) {
-      const best = this.pickRibbon(view);
-      const free = this.spotOverlap[best] < 1e-6;
+      // one fixed slot, never moving: a new line waits (up to 2 s) for the slot to
+      // be clear of shadows; if a hand moves in under it later, it dims so the
+      // shadow shows through, and comes back when the hand leaves
+      this.pickRibbon(view);
+      const blocked = this.spotOverlap[0] > 0.0002;
       if (tv.lineId !== this.ribbonLine) {
-        // a new line opens where nothing is - or waits (up to ~1.2 s) for the hand to clear
         this.ribbonLine = tv.lineId;
-        this.ribbonSpot = best;
-        this.ribbonFade = free ? 1 : 0;
-        this.ribbonHold = free ? 0 : 1.2;
-        this.ribbonMoving = false;
-        this.ribbonBlocked = 0;
-      } else if (this.ribbonHold > 0) {
-        this.ribbonHold -= this.textDt;
-        if (free || this.ribbonHold <= 0) {
-          this.ribbonSpot = free ? best : RIBBON_SPOTS.length / 2 - 1;
-          this.ribbonHold = 0;
-        }
-      } else if (!this.ribbonMoving && this.spotOverlap[this.ribbonSpot] > 0.0002 && free) {
-        // something moved under it: after a moment, fade out here and in at a free spot
-        this.ribbonBlocked += this.textDt;
-        if (this.ribbonBlocked > 0.18) this.ribbonMoving = true;
-      } else this.ribbonBlocked = 0;
+        this.ribbonHold = blocked ? 2.0 : 0;
+        this.ribbonFade = blocked ? 0 : 1;
+      }
       if (this.ribbonHold > 0) {
+        this.ribbonHold = blocked ? this.ribbonHold - this.textDt : 0;
         this.ribbonFade = 0;
-      } else if (this.ribbonMoving) {
-        this.ribbonFade = Math.max(0, this.ribbonFade - this.textDt / 0.16);
-        if (this.ribbonFade <= 0) {
-          this.ribbonSpot = this.pickRibbon(view);
-          this.ribbonMoving = false;
-          this.ribbonBlocked = 0;
-        }
-      } else this.ribbonFade = Math.min(1, this.ribbonFade + this.textDt / 0.22);
+      } else {
+        const target = blocked ? 0.22 : 1;
+        this.ribbonFade += (target - this.ribbonFade) * (1 - Math.exp(-7 * this.textDt));
+      }
     }
     const rf = this.ribbonFade * this.ribbonFade * (3 - 2 * this.ribbonFade);
     this.banner.show((this.lineLeaving ? a : Math.min(1, a * 1.6)) * vis * rf, reveal);
-    if (this.banner.mesh.visible) this.placeText(this.banner, fr, RIBBON_SPOTS[this.ribbonSpot * 2], RIBBON_SPOTS[this.ribbonSpot * 2 + 1]);
+    if (this.banner.mesh.visible) this.placeText(this.banner, fr, RIBBON_SPOTS[0], RIBBON_SPOTS[1]);
     // prompt: a few small-caps words under the stage, below the pictogram
     const prompt = !words ? '' : this.settings.fullCaptions ? tv.promptFull || tv.prompt : tv.prompt;
     this.promptText.set(prompt);
@@ -907,7 +890,7 @@ export class App {
           ? 1
           : 1 - easeInCubic((t - TITLE_IN - TITLE_HOLD) / TITLE_OUT);
     this.titleText.show(ta * vis);
-    if (this.titleText.mesh.visible) this.placeText(this.titleText, fr, 0, 0.385);
+    if (this.titleText.mesh.visible) this.placeText(this.titleText, fr, 0, 0.35);
   }
 
   // ------------------------------------------------------------ lantern menu

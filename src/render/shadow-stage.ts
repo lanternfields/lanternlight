@@ -514,6 +514,8 @@ export class ShadowStage {
       u.uFill.value = 0;
       u.uTime.value = time;
       this.glows.push(0, 0, 0.3 * this.title.scale, 0.75 * ta);
+      // the title sits in the light too (ink on lamplight)
+      for (const gx of [-0.32, 0, 0.32]) this.glows.push(gx, 0.34, 0.3, 0.62 * ta);
       if (view.title.id === 'croc') {
         // the firefly the crocodile is snapping at
         drawFirefly(this.glows, 0.19 * this.title.scale, 0.0, ta, 0, time, reduceMotion);

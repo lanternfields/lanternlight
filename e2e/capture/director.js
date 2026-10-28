@@ -402,6 +402,53 @@
     // ---- The Hungry Crocodile
     yield* chooseTale('croc');
     mark('croc');
+    yield* crocBeat();
+    let t0 = time;
+    ctl.size = 1;
+    if (shotCh.inset.to === 1) setShot('inset', 0, 0.35);
+    mark('croc-fed');
+    yield* until(() => S().scene !== 'croc', 15);
+    rest();
+    // ---- Rabbit's Bridge
+    yield* chooseTale('bridge');
+    mark('bridge');
+    rest();
+    yield* wait(3.2); // the rabbit waits at the edge; the hint appears
+    setPose('flat', 0.6);
+    orient(-30, 90, 0);
+    ctl.tau = 0.3;
+    setShot('inset', 1, 0.35); // the hand laid flat, from the side
+    t0 = time;
+    let insetOff = false;
+    while (S().scene === 'bridge' && S().stats.crossings < 1 && time - t0 < 30) {
+      const round = S().stats.crossings;
+      shadowTo(0.0, -0.37, { feature: 'handTop', size: 1.05 });
+      if (!insetOff && time - t0 > 4.5) {
+        insetOff = true;
+        setShot('inset', 0, 0.35);
+      }
+      yield;
+    }
+    ctl.tau = 0.16;
+    mark('bridge-done');
+    yield* wait(1.0);
+    setPose('relaxed', 0.6);
+    rest();
+    // ---- The Moon Wolf
+    yield* chooseTale('wolf');
+    mark('wolf');
+    yield* wolfBeat();
+    mark('wolf-done');
+    rest();
+    yield* until(() => S().scene === 'finale' || S().scene === 'menu', 20);
+    mark('finale');
+    yield* until(() => S().scene === 'menu', 20);
+    yield* wait(2.5);
+    mark('end');
+  }
+
+  /** The Hungry River: the hand becomes a crocodile and chases fireflies (shared by clips). */
+  function* crocBeat() {
     // hand down while the title card plays, then it becomes a crocodile:
     // fingers together, thumb dropped, side-on
     setPose('relaxed', 0.5);
@@ -414,7 +461,7 @@
     shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
     yield* wait(1.6);
     ctl.tau = 0.16;
-    let t0 = time;
+    const t0 = time;
     while (S().scene === 'croc' && S().stats.eaten < 7 && time - t0 < 45) {
       // the rightmost bright firefly; the mouth never goes far left (the
       // crocodile's body trails left of its mouth and must stay in the light)
@@ -441,46 +488,19 @@
       yield* wait(0.4);
       if (S().stats.chomps >= 2 && shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     }
+  }
+
+  /** Just the crocodile tale (eye-motion check and its own clip). */
+  function* crocTale() {
+    setPose('relaxed', 0.1);
+    rest();
+    yield* wait(0.3);
+    goto('croc');
+    mark('croc');
+    yield* crocBeat();
     ctl.size = 1;
-    if (shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     mark('croc-fed');
     yield* until(() => S().scene !== 'croc', 15);
-    rest();
-    // ---- Rabbit's Bridge
-    yield* chooseTale('bridge');
-    mark('bridge');
-    rest();
-    yield* wait(3.2); // the rabbit waits at the edge; the hint appears
-    setPose('flat', 0.6);
-    orient(-30, 90, 0);
-    ctl.tau = 0.3;
-    setShot('inset', 1, 0.35); // the hand laid flat, from the side
-    t0 = time;
-    let insetOff = false;
-    while (S().scene === 'bridge' && S().stats.crossings < 3 && time - t0 < 70) {
-      const round = S().stats.crossings;
-      shadowTo(0.0, -0.37, { feature: 'handTop', size: [1.0, 1.08, 1.2][Math.min(2, round)] });
-      if (!insetOff && time - t0 > 4.5) {
-        insetOff = true;
-        setShot('inset', 0, 0.35);
-      }
-      yield;
-    }
-    ctl.tau = 0.16;
-    mark('bridge-done');
-    yield* wait(1.0);
-    setPose('relaxed', 0.6);
-    rest();
-    // ---- The Moon Wolf
-    yield* chooseTale('wolf');
-    mark('wolf');
-    yield* wolfBeat();
-    mark('wolf-done');
-    rest();
-    yield* until(() => S().scene === 'finale' || S().scene === 'menu', 20);
-    mark('finale');
-    yield* until(() => S().scene === 'menu', 20);
-    yield* wait(2.5);
     mark('end');
   }
 
@@ -736,7 +756,7 @@
     marks,
     start(name = 'coreLoop') {
       if (name !== 'coreLoop') shotCh.wide.from = shotCh.wide.to = 0;
-      gen = { coreLoop, stills, wolfClip, openingClip, textStills }[name]();
+      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale }[name]();
       gen.next(0);
       done = false;
       time = 0;

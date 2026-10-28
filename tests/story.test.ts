@@ -188,7 +188,7 @@ describe('story: the hungry crocodile', () => {
 });
 
 describe("story: rabbit's bridge", () => {
-  it('three crossings over a hand bridge complete the tale', () => {
+  it('one crossing over a hand bridge, then Pip goes into the burrow, completes the tale', () => {
     const model = new ShadowModel();
     const hand = new FakeHand(model);
     const story = new Story();
@@ -200,7 +200,7 @@ describe("story: rabbit's bridge", () => {
       story.update(1 / 72, model);
       for (const e of story.events) ev.push(e.type);
     }
-    expect(ev.filter((e) => e === 'roundComplete').length).toBe(3);
+    expect(ev.filter((e) => e === 'roundComplete').length).toBe(1);
     expect(story.progress.completed.bridge).toBe(true);
     expect(story.scene).toBe('menu');
   });

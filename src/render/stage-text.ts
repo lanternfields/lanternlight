@@ -4,8 +4,8 @@
  *    on a paper-cut ribbon that unfurls in the upper third of the light pool;
  *  - 'prompt': a few words in small caps (warm ivory) under the stage, below
  *    the ghost-hand pictogram, only when the player stalls;
- *  - 'title': the tale's small-caps title with its roman numeral, in warm gold
- *    ink, letter-spaced, above the title card's emblem ring.
+ *  - 'title': the tale's small-caps title with its roman numeral, in dark ink,
+ *    letter-spaced, inside the light above the title card's emblem ring.
  * Drawn once per string into a 2x mipmapped canvas; the unfurl and the fades
  * run in the shader (no per-frame redraw). Sizes are in stage units, chosen so
  * the x-height is >= 34 px in the 1080p capture and >= 1.4 deg in the headset.
@@ -244,17 +244,8 @@ export class StageText {
     (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${Math.round(fontPx * 0.1)}px`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // warm gold ink with a soft dark halo: as legible as the ribbon, on any wall
-    const x = canvas.width / 2;
-    const y = canvas.height * 0.54;
-    const maxW = canvas.width * 0.96;
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(10,6,4,0.82)';
-    ctx.lineWidth = fontPx * 0.14;
-    ctx.strokeText(text, x, y, maxW);
-    ctx.shadowColor = 'rgba(255,196,120,0.5)';
-    ctx.shadowBlur = fontPx * 0.18;
-    ctx.fillStyle = '#ffe2a6';
-    ctx.fillText(text, x, y, maxW);
+    // ink, no outline: dark letters sitting inside the title card's pool of light
+    ctx.fillStyle = '#1a0f08';
+    ctx.fillText(text, canvas.width / 2, canvas.height * 0.54, canvas.width * 0.96);
   }
 }

@@ -362,11 +362,14 @@ export class Story {
   private readonly jaws: Float32Array[] = [0, 1, 2, 3].map(() => new Float32Array(4));
   /** Bridge tale */
   private round = 0;
-  private readonly rounds = [0.13, 0.19, 0.25];
+  /** Gap half-widths per crossing: one crossing (the critic: a single, clear beat). */
+  private readonly rounds = [0.19];
   private peerTime = 0;
   /** Seconds the rabbit has waited for help this round (drives the plank assist). */
   private waitTime = 0;
   private readonly plank = { active: false, t: 0, done: false, index: 0 };
+  private homeFromX = 0;
+  private homeFromY = 0;
   private readonly world: RabbitWorld;
   /** Moon Wolf tale */
   readonly wolf = new Wolf();
@@ -1174,7 +1177,27 @@ export class Story {
     } else if (this.beat === 'celebrate') {
       v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
       this.ask(null);
-      if (this.beatTime > 1.6) {
+      // Pip hops to the burrow's door and goes in
+      const t = this.beatTime;
+      const r = this.rabbit;
+      if (t < dt * 1.5) {
+        this.homeFromX = r.x;
+        this.homeFromY = r.y;
+      }
+      const door = v.burrow.s;
+      const hop = Math.min(1, t / 0.75);
+      const e = hop * hop * (3 - 2 * hop);
+      r.x = this.homeFromX + (door - this.homeFromX) * e;
+      r.y = this.homeFromY + (GROUND_T + 0.01 - this.homeFromY) * e + Math.sin(Math.PI * hop) * 0.07;
+      r.dir = door >= this.homeFromX ? 1 : -1;
+      v.rabbit.hopping = hop < 1;
+      if (hop >= 1) {
+        // into the doorway: a little squash, then gone inside
+        const inn = Math.min(1, (t - 0.75) / 0.35);
+        v.rabbit.visible = 1 - inn * inn;
+        if (inn < dt * 4) r.bounce(-3);
+      }
+      if (this.beatTime > 1.4) {
         this.round++;
         if (this.round >= this.rounds.length) {
           this.progress.completed.bridge = true;
@@ -1188,7 +1211,8 @@ export class Story {
       }
     } else if (this.beat === 'end') {
       v.warmth = approach(v.warmth, 0.6, 2, dt);
-      if (this.beatTime > 4.6) {
+      v.rabbit.visible = 0;
+      if (this.beatTime > 4.0) {
         v.warmth = 0;
         this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
