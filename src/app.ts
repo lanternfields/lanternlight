@@ -765,6 +765,7 @@ export class App {
     const sc = this.story.scene;
     const music = sc === 'menu' || sc === 'bridge' || sc === 'finale' ? 1 : sc === 'croc' ? 0.7 : sc === 'wolf' ? 0.35 : view.light > 0.5 ? 0.5 : 0;
     this.lastMusic = music * (1 - view.fade);
+    this.audio.ambience = sc === 'croc' || sc === 'bridge' || sc === 'wolf' ? sc : '';
     this.audio.tick(dt, view.flame, this.lastMusic);
     for (const e of this.story.events) this.audio.play(e.type, e.s, e.t, e.value);
 

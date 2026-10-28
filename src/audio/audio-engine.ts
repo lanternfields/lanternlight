@@ -28,6 +28,15 @@ export class AudioEngine {
   private master!: GainNode;
   private limiter!: DynamicsCompressorNode;
   private humGain!: GainNode;
+  /** Per-tale ambience: 'croc' (water, reeds), 'bridge' (wind), 'wolf' (crickets, wind). */
+  ambience: string = '';
+  private waterGain!: GainNode;
+  private reedGain!: GainNode;
+  private windGain!: GainNode;
+  private windFilter!: BiquadFilterNode;
+  private bedClock = 0;
+  private plipTimer = 0;
+  private cricketTimer = 0;
   private reverb!: ConvolverNode;
   private reverbSend!: GainNode;
   private musicGain!: GainNode;
@@ -85,7 +94,13 @@ export class AudioEngine {
     this.limiter.ratio.value = 6;
     this.limiter.attack.value = 0.004;
     this.limiter.release.value = 0.25;
-    this.master.connect(this.limiter);
+    // the whole mix is high-passed at 60 Hz: no rumble under the show
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 60;
+    hp.Q.value = 0.7;
+    this.master.connect(hp);
+    hp.connect(this.limiter);
     this.limiter.connect(ctx.destination);
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.makeImpulse(1.8, 2.6);
@@ -121,6 +136,74 @@ export class AudioEngine {
       o.start();
     }
     this.nextNote = this.now() + 0.5;
+    this.buildAmbience(ctx);
+  }
+
+  /** Looping noise beds for each tale's ambience (levels follow `ambience`). */
+  private buildAmbience(ctx: BaseAudioContext): void {
+    const loop = (): AudioBufferSourceNode => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      src.loop = true;
+      src.start();
+      return src;
+    };
+    // the river: low, soft and moving
+    this.waterGain = ctx.createGain();
+    this.waterGain.gain.value = 0;
+    const wlp = ctx.createBiquadFilter();
+    wlp.type = 'lowpass';
+    wlp.frequency.value = 520;
+    const wbp = ctx.createBiquadFilter();
+    wbp.type = 'highpass';
+    wbp.frequency.value = 140;
+    loop().connect(wlp).connect(wbp).connect(this.waterGain).connect(this.master);
+    // reeds: a dry, high whisper
+    this.reedGain = ctx.createGain();
+    this.reedGain.gain.value = 0;
+    const rhp = ctx.createBiquadFilter();
+    rhp.type = 'bandpass';
+    rhp.frequency.value = 5200;
+    rhp.Q.value = 0.8;
+    loop().connect(rhp).connect(this.reedGain).connect(this.master);
+    // wind: a slowly swelling band of noise
+    this.windGain = ctx.createGain();
+    this.windGain.gain.value = 0;
+    this.windFilter = ctx.createBiquadFilter();
+    this.windFilter.type = 'bandpass';
+    this.windFilter.frequency.value = 650;
+    this.windFilter.Q.value = 0.9;
+    loop().connect(this.windFilter).connect(this.windGain).connect(this.master);
+  }
+
+  /** Per-frame ambience: bed levels, river plips, crickets (all scheduled at now()). */
+  private tickAmbience(dt: number): void {
+    const now = this.now();
+    const amb = this.ambience;
+    this.bedClock += dt;
+    const swell = 0.75 + 0.25 * Math.sin(this.bedClock * 0.35) * Math.sin(this.bedClock * 0.13 + 1);
+    this.waterGain.gain.setTargetAtTime(amb === 'croc' ? 0.05 * swell : amb === 'bridge' ? 0.025 * swell : 0, now, 0.8);
+    this.reedGain.gain.setTargetAtTime(amb === 'croc' ? 0.018 * swell : 0, now, 0.8);
+    this.windGain.gain.setTargetAtTime(amb === 'bridge' ? 0.06 * swell : amb === 'wolf' ? 0.03 * swell : 0, now, 1.0);
+    this.windFilter.frequency.setTargetAtTime(520 + 260 * Math.sin(this.bedClock * 0.21), now, 0.5);
+    // the river: little plips and drips
+    if (amb === 'croc') {
+      this.plipTimer -= dt;
+      if (this.plipTimer <= 0) {
+        this.plipTimer = 0.35 + Math.random() * 1.1;
+        const f = 650 + Math.random() * 700;
+        this.tone(this.master, f, now, 0.07, 0.022, 'sine', f * 0.55);
+      }
+    }
+    // crickets, high above everything (4-5 kHz chirps in threes)
+    if (amb === 'wolf') {
+      this.cricketTimer -= dt;
+      if (this.cricketTimer <= 0) {
+        this.cricketTimer = 0.45 + Math.random() * 0.6;
+        const f = 4300 + Math.random() * 600;
+        for (let i = 0; i < 3; i++) this.tone(this.master, f, now + i * 0.045, 0.028, 0.016, 'sine');
+      }
+    }
   }
 
   /** Static listener pose (the capture's seated camera). */
@@ -221,7 +304,9 @@ export class AudioEngine {
     if (!this.live()) return;
     const ctx = { currentTime: this.now() };
     this.crackleGain.gain.setTargetAtTime(flame * 0.5, ctx.currentTime, 0.3);
-    this.humGain.gain.setTargetAtTime(flame * 0.035, ctx.currentTime, 0.6);
+    // (the hum is a quiet presence under the crackle, not a bed: -12 dB)
+    this.humGain.gain.setTargetAtTime(flame * 0.009, ctx.currentTime, 0.6);
+    this.tickAmbience(dt);
     this.musicGain.gain.setTargetAtTime(musicLevel * 0.22, ctx.currentTime, 0.8);
     // crackle grains
     this.crackleTimer -= dt;
@@ -362,14 +447,14 @@ export class AudioEngine {
         break;
       case 'chomp':
         // a wooden clack and a jaw thock
-        this.noiseHit(wet, now, 0.025, 0.22, 'bandpass', 3200);
-        this.tone(wet, 1250, now, 0.035, 0.1, 'triangle', 700);
-        this.tone(wet, 160, now + 0.012, 0.16, 0.16, 'sine', 70);
+        this.noiseHit(wet, now, 0.03, 0.45, 'bandpass', 3200);
+        this.tone(wet, 1250, now, 0.04, 0.2, 'triangle', 700);
+        this.tone(wet, 170, now + 0.012, 0.16, 0.3, 'sine', 75);
         break;
       case 'eat': {
         // a little gulp, then the swallowed firefly glows (a rising note)
         const i = Math.min(SCALE.length - 1, 2 + value);
-        this.tone(wet, 240, now + 0.04, 0.12, 0.08, 'sine', 130);
+        this.tone(wet, 240, now + 0.04, 0.12, 0.14, 'sine', 130);
         this.pluck(SCALE[i], now + 0.12, 0.3, wet, 1.6);
         this.pluck(SCALE[i] * 2, now + 0.17, 0.1, wet, 1.0);
         break;
@@ -402,7 +487,7 @@ export class AudioEngine {
         lp.frequency.value = 420;
         const g = ctx2.createGain();
         g.gain.setValueAtTime(0, now);
-        g.gain.linearRampToValueAtTime(0.09, now + 0.12);
+        g.gain.linearRampToValueAtTime(0.16, now + 0.12);
         g.gain.linearRampToValueAtTime(0.0001, now + 0.95);
         const lfo = ctx2.createOscillator();
         lfo.frequency.value = 23;
@@ -423,10 +508,10 @@ export class AudioEngine {
         break;
       case 'scare': {
         // the flare: a bright bloom of light in sound, a low thump under it
-        this.noiseHit(wet, now, 0.5, 0.16, 'bandpass', 500, 4200);
-        [4, 7, 9].forEach((i, k) => this.pluck(SCALE[i] * 2, now + 0.02 + k * 0.025, 0.18, wet, 1.2));
-        this.tone(wet, 70, now, 0.35, 0.22, 'sine', 42);
-        this.tone(wet, 980, now + 0.05, 0.22, 0.05, 'sine', 620); // a little yelp
+        this.noiseHit(wet, now, 0.55, 0.34, 'bandpass', 500, 4200);
+        [4, 7, 9].forEach((i, k) => this.pluck(SCALE[i] * 2, now + 0.02 + k * 0.025, 0.3, wet, 1.4));
+        this.tone(wet, 90, now, 0.35, 0.4, 'sine', 62);
+        this.tone(wet, 980, now + 0.05, 0.24, 0.1, 'sine', 620); // a little yelp
         break;
       }
       case 'wolfFlee':
@@ -453,8 +538,8 @@ export class AudioEngine {
         bp.Q.value = 0.8;
         const g = ctx2.createGain();
         g.gain.setValueAtTime(0, now);
-        g.gain.linearRampToValueAtTime(0.12, now + 0.35);
-        g.gain.linearRampToValueAtTime(0.09, now + 1.6);
+        g.gain.linearRampToValueAtTime(0.24, now + 0.35);
+        g.gain.linearRampToValueAtTime(0.18, now + 1.6);
         g.gain.linearRampToValueAtTime(0.0001, now + 2.4);
         o.connect(bp).connect(g).connect(wet);
         o.start(now);

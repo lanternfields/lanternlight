@@ -186,10 +186,10 @@ while (!last.done && last.t < maxSeconds) {
     window.__setCamera(sh.close, sh.wide, w);
     app.captureShot = w > 0.02 ? 'wide' : 'close';
     window.__vclock.step(1000 / fps);
-    r.audio = [app.story.view.flame, app.lastMusic, app.story.events.map((e) => [e.type, e.s, e.t, e.value])];
+    r.audio = [app.story.view.flame, app.lastMusic, app.story.events.map((e) => [e.type, e.s, e.t, e.value]), app.audio.ambience];
     return r;
   }, FPS);
-  audioLog.push([n / FPS, last.audio[0], last.audio[1], last.audio[2]]);
+  audioLog.push([n / FPS, last.audio[0], last.audio[1], last.audio[2], last.audio[3]]);
   const frameIndex = n;
   await grab();
   if (last.shot && last.shot.inset > 0.01) {
@@ -226,8 +226,9 @@ try {
       const f = app.headForward;
       const u = app.headUp;
       eng.setListener({ x: h.x, y: h.y, z: h.z }, { x: f.x, y: f.y, z: f.z }, { x: u.x, y: u.y, z: u.z });
-      for (const [t, flame, music, evs] of frames) {
+      for (const [t, flame, music, evs, amb] of frames) {
         eng.clock = t;
+        eng.ambience = amb || '';
         eng.tick(1 / 60, flame, music);
         for (const e of evs) eng.play(e[0], e[1], e[2], e[3]);
       }
