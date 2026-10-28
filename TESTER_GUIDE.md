@@ -3,6 +3,15 @@
 Thank you for trying Lanternlight. It's a hand-shadow theatre: a paper lantern lights up beside
 you, your wall becomes a stage, and your hands cast shadows that come to life.
 
+> **Updated 28 Oct.** What changed since the first version of this guide:
+> 1. The start button is now called **Light the lantern** (it used to say *Begin*).
+> 2. To make a shadow **bigger**, bring your hand **back toward you** (not toward the lantern).
+> 3. **Stage here** (lantern menu): press it, then look where you want the stage and hold still for a moment.
+> 4. On **Quest 2** your room looks black and white. That's expected: the lantern light and the shadows still show in colour.
+> 5. A storyteller now speaks in short lines on a paper ribbon, and short hints (like *Raise a hand into the light*) appear only if you pause. You can turn on **Full captions** under *Settings* for longer explanations.
+> 6. **The Moon Wolf** is now one big scare: make your shadow big once, and watch what the wolf does next.
+> 7. **Rabbit's Bridge**: if nobody helps for a while, a paper plank drops in so the rabbit always gets home.
+
 ## Before you start (2 minutes)
 
 1. **Which headset do you have?** Please tell us, because the models behave differently:

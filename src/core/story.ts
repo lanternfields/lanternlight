@@ -42,7 +42,11 @@ export type SoundEvent =
   | 'wolfFlee'
   | 'howl'
   | 'bow'
-  | 'title';
+  | 'title'
+  | 'scare'
+  | 'curtain'
+  | 'goodnight'
+  | 'ribbon';
 
 export interface StoryEvent {
   type: SoundEvent;
@@ -423,6 +427,7 @@ export class Story {
       const next = this.lineQueue.shift()!;
       tv.line = next.text;
       tv.lineId++;
+      this.emit(next.text === LINES.goodnight ? 'goodnight' : 'ribbon', 0, 0.3);
       tv.lineAlpha = 0;
       this.lineT = 0;
       this.lineHold = next.hold;
@@ -1192,6 +1197,8 @@ export class Story {
   // fills; at the threshold it rears back, then bolts; the twist follows at once.
   private readonly wolfThresholds = [1.25];
   static readonly WOLF_SCALE = 1.55;
+  private twistSaid = false;
+  private twistAt = 0;
   static readonly WOLF_RABBIT_SCALE = 1.45;
 
   /** Size the shadow must reach (gentle mode & assist lower it). */
@@ -1238,16 +1245,20 @@ export class Story {
           // the scare lands: a flare of light and a tremble of the wall
           v.flare = 1;
           v.tremble = 1;
+          this.emit('scare', w.x, w.y, 1);
+        }
+        if (ev.fled) {
+          v.sparkle = 0.7;
           this.emit('wolfFlee', w.x, w.y, 1);
         }
-        if (ev.fled) v.sparkle = 0.7;
         if (w.state === 'away') {
           this.awayTime += dt;
           if (this.awayTime > 0.45) {
             this.awayTime = 0;
             this.wolfRound++;
             w.befriend();
-            this.say(LINES.wolfTwist);
+            this.twistSaid = false;
+            this.twistAt = 0;
             this.setBeat('howl');
           }
         }
@@ -1267,12 +1278,20 @@ export class Story {
         const ev = w.update(dt, false);
         v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
         this.ask(null);
+        // the image first, then the words: the twist line once the wolf is back in the light
+        if (!this.twistSaid && w.x < 0.62) {
+          this.twistAt += dt;
+          if (this.twistAt > 0.3) {
+            this.twistSaid = true;
+            this.say(LINES.wolfTwist);
+          }
+        }
         if (ev.howl) {
           this.emit('howl', w.x, w.y);
           v.sparkle = 1;
           this.say(LINES.wolfClose);
         }
-        if (w.state === 'howl' && w.stateTime > 4.8) {
+        if (w.state === 'howl' && w.stateTime > 6.8) {
           this.progress.completed.wolf = true;
           this.emit('taleComplete');
           this.setBeat('end');
@@ -1324,6 +1343,7 @@ export class Story {
       this.wolf.crouch = 0.9;
     }
     if (this.beatTime < dt * 1.5) {
+      this.emit('curtain', 0, 0);
       this.say(LINES.sleepy);
       this.say(LINES.thanks);
       this.say(LINES.goodnight, true);

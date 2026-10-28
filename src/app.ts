@@ -26,7 +26,7 @@ import {
   DEFAULT_PLACEMENT,
 } from './core/stage-placement.js';
 import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
-import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT } from './core/story.js';
+import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT, StageView } from './core/story.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
 import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
@@ -44,6 +44,9 @@ export { detectDevice, initialQuality };
 
 export const BUILD: string = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
 import { J } from './core/hand-model.js';
+
+/** Candidate ribbon centres (s, t), in order of preference: up in the light, then under the stage. */
+const RIBBON_SPOTS = [0, 0.31, 0, 0.39, -0.3, 0.33, 0.3, 0.33, 0, 0.47, 0, -0.66];
 
 export type Phase = 'landing' | 'placing' | 'show' | 'paused';
 
@@ -85,6 +88,16 @@ export class App {
   readonly promptText = new StageText('prompt');
   readonly titleText = new StageText('title');
   private lastLineAlpha = 0;
+  /** Music level of the last frame (the capture's soundtrack replays it). */
+  lastMusic = 0;
+  /** Where the ribbon sits: a spot clear of every shadow and character (it never glides across them). */
+  private ribbonSpot = 0;
+  private ribbonLine = -1;
+  private ribbonFade = 1;
+  private ribbonMoving = false;
+  private ribbonBlocked = 0;
+  private readonly occupied: number[] = [];
+  private readonly spotOverlap = new Float32Array(RIBBON_SPOTS.length / 2);
   private trembling = false;
   private lineLeaving = false;
   /** Lantern-lit stand-ins for your hands where passthrough can't show them. */
@@ -693,6 +706,7 @@ export class App {
     u.uContrast.value = this.settings.highContrast ? 1 : 0;
     u.uDetail.value = this.quality.current.shaderDetail && !this.settings.highContrast ? 1 : 0;
     u.uTime.value = time;
+    u.uLift.value = this.capture && this.emulated ? 1 : 0;
     u.uUnroll.value = Math.min(1, view.light * 1.4 + view.dim * 0.3);
     const du = this.dim.material.uniforms;
     du.uDim.value = this.session.mode === 'vr' ? 0 : this.settings.dimLevel * view.dim;
@@ -706,6 +720,7 @@ export class App {
     du.uHouse.value = 1 - view.dim;
     this.dim.mesh.position.set(this.head.x, this.head.y, this.head.z);
 
+    this.textDt = dt;
     this.updateText();
     this.updateHud(dt);
 
@@ -713,7 +728,8 @@ export class App {
     this.audio.updateListener(this.head, this.headForward, this.headUp);
     const sc = this.story.scene;
     const music = sc === 'menu' || sc === 'bridge' || sc === 'finale' ? 1 : sc === 'croc' ? 0.7 : sc === 'wolf' ? 0.35 : view.light > 0.5 ? 0.5 : 0;
-    this.audio.tick(dt, view.flame, music * (1 - view.fade));
+    this.lastMusic = music * (1 - view.fade);
+    this.audio.tick(dt, view.flame, this.lastMusic);
     for (const e of this.story.events) this.audio.play(e.type, e.s, e.t, e.value);
 
     this.saveTimer += dt;
@@ -733,6 +749,54 @@ export class App {
     t.mesh.scale.set(t.spec.units * fr.height, t.heightUnits * fr.height, 1);
   }
 
+  private textDt = 1 / 72;
+
+  /**
+   * A place for the storyteller's ribbon that covers no shadow or character
+   * (hands and puppets, the rabbit, the wolf, the story lanterns, the ghost
+   * pictogram): the first free candidate band, above the action or else
+   * under the stage.
+   */
+  private pickRibbon(view: StageView): number {
+    const occ = this.occupied;
+    occ.length = 0;
+    const box = (s0: number, s1: number, t0: number, t1: number) => occ.push(s0, s1, t0, t1);
+    for (const a of this.model.actors) if (a.present) box(a.minS, a.maxS, a.minT, a.maxT);
+    const rv = view.rabbit;
+    if (rv.visible > 0.3) box(rv.x - 0.1 * rv.scale, rv.x + 0.1 * rv.scale, rv.y - 0.02, rv.y + 0.25 * rv.scale);
+    const wv = view.wolf;
+    if (wv.visible > 0.3 && wv.state !== 'away') box(wv.x - 0.22 * wv.scale, wv.x + 0.22 * wv.scale, wv.y - 0.02, wv.y + 0.34 * wv.scale);
+    if (view.scene === 'menu') for (const i of view.icons) if (i.visible > 0.05) box(i.s - i.r, i.s + i.r, i.t - i.r, i.t + i.r);
+    const g = view.ghost;
+    if (g.visible > 0.08) box(g.s - 0.24 * g.scale, g.s + 0.24 * g.scale, g.t - 0.3 * g.scale, g.t + 0.26 * g.scale);
+    const mv = view.moon;
+    if (mv.visible > 0.2) {
+      const mr = mv.r * (view.courageRing > 0.05 ? 2.4 : 1.6);
+      box(mv.s - mr, mv.s + mr, mv.t - mr, mv.t + mr);
+    }
+    const hw = this.banner.contentW / 2 + 0.015;
+    const hh = this.banner.contentH / 2 + 0.015;
+    let best = -1;
+    let least = Infinity;
+    for (let c = 0; c < RIBBON_SPOTS.length; c += 2) {
+      const s = RIBBON_SPOTS[c];
+      const t = RIBBON_SPOTS[c + 1];
+      let overlap = 0;
+      for (let k = 0; k < occ.length; k += 4) {
+        const ox = Math.min(s + hw, occ[k + 1]) - Math.max(s - hw, occ[k]);
+        const oy = Math.min(t + hh, occ[k + 3]) - Math.max(t - hh, occ[k + 2]);
+        if (ox > 0 && oy > 0) overlap += ox * oy;
+      }
+      this.spotOverlap[c / 2] = overlap;
+      if (overlap < 1e-6 && best < 0) best = c / 2;
+      if (overlap < least) least = overlap;
+    }
+    if (best >= 0) return best;
+    // nowhere is free: the spot that covers least
+    for (let i = 0; i < this.spotOverlap.length; i++) if (this.spotOverlap[i] === least) return i;
+    return 0;
+  }
+
   private updateText(): void {
     const fr = this.placement!.frame;
     const view = this.story.view;
@@ -746,9 +810,32 @@ export class App {
     this.lastLineAlpha = tv.lineAlpha;
     const a = tv.lineAlpha;
     const reveal = this.lineLeaving ? 1 : 1 - Math.pow(1 - a, 3);
-    this.banner.show((this.lineLeaving ? a : Math.min(1, a * 1.6)) * vis, reveal);
-    // (in the menu the ribbon sits a little higher, clear of the story lanterns)
-    if (this.banner.mesh.visible) this.placeText(this.banner, fr, 0, view.scene === 'menu' ? 0.355 : 0.3);
+    if (tv.line) {
+      const best = this.pickRibbon(view);
+      if (tv.lineId !== this.ribbonLine) {
+        // a new line opens where nothing is
+        this.ribbonLine = tv.lineId;
+        this.ribbonSpot = best;
+        this.ribbonFade = 1;
+        this.ribbonMoving = false;
+        this.ribbonBlocked = 0;
+      } else if (!this.ribbonMoving && this.spotOverlap[this.ribbonSpot] > 0.0015 && this.spotOverlap[best] < 1e-6) {
+        // something moved under it: after a moment, fade out here and in at a free spot
+        this.ribbonBlocked += this.textDt;
+        if (this.ribbonBlocked > 0.18) this.ribbonMoving = true;
+      } else this.ribbonBlocked = 0;
+      if (this.ribbonMoving) {
+        this.ribbonFade = Math.max(0, this.ribbonFade - this.textDt / 0.16);
+        if (this.ribbonFade <= 0) {
+          this.ribbonSpot = this.pickRibbon(view);
+          this.ribbonMoving = false;
+          this.ribbonBlocked = 0;
+        }
+      } else this.ribbonFade = Math.min(1, this.ribbonFade + this.textDt / 0.22);
+    }
+    const rf = this.ribbonFade * this.ribbonFade * (3 - 2 * this.ribbonFade);
+    this.banner.show((this.lineLeaving ? a : Math.min(1, a * 1.6)) * vis * rf, reveal);
+    if (this.banner.mesh.visible) this.placeText(this.banner, fr, RIBBON_SPOTS[this.ribbonSpot * 2], RIBBON_SPOTS[this.ribbonSpot * 2 + 1]);
     // prompt: a few small-caps words under the stage, below the pictogram
     const prompt = !words ? '' : this.settings.fullCaptions ? tv.promptFull || tv.prompt : tv.prompt;
     this.promptText.set(prompt);

@@ -4,8 +4,8 @@
  *    on a paper-cut ribbon that unfurls in the upper third of the light pool;
  *  - 'prompt': a few words in small caps (warm ivory) under the stage, below
  *    the ghost-hand pictogram, only when the player stalls;
- *  - 'title': the tale's small-caps title with its roman numeral, ink-dark and
- *    letter-spaced, above the title card's emblem ring.
+ *  - 'title': the tale's small-caps title with its roman numeral, in warm gold
+ *    ink, letter-spaced, above the title card's emblem ring.
  * Drawn once per string into a 2x mipmapped canvas; the unfurl and the fades
  * run in the shader (no per-frame redraw). Sizes are in stage units, chosen so
  * the x-height is >= 34 px in the 1080p capture and >= 1.4 deg in the headset.
@@ -72,6 +72,9 @@ export class StageText {
   private current = '\u0000';
   /** Height of the quad in stage units. */
   readonly heightUnits: number;
+  /** Size of what was drawn (the ribbon itself), in stage units. */
+  contentW = 0;
+  contentH = 0;
 
   constructor(readonly style: TextStyle) {
     this.spec = SPECS[style];
@@ -168,6 +171,9 @@ export class StageText {
     const half = Math.min(canvas.width * 0.47, tw / 2 + fontPx * 0.9);
     const notch = fontPx * 0.55;
     const curl = fontPx * 0.16;
+    const ppu = this.spec.w / this.spec.units;
+    this.contentW = (2 * (half + notch * 1.6)) / ppu;
+    this.contentH = (bandH + curl * 2.2) / ppu;
     // the paper-cut ribbon: a band with a gentle sag and swallowtail ends
     const top = cy - bandH / 2;
     const bot = cy + bandH / 2;
@@ -238,8 +244,17 @@ export class StageText {
     (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${Math.round(fontPx * 0.1)}px`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // ink-dark on the warm light, like the cut-outs
-    ctx.fillStyle = '#170d07';
-    ctx.fillText(text, canvas.width / 2, canvas.height * 0.54, canvas.width * 0.96);
+    // warm gold ink with a soft dark halo: as legible as the ribbon, on any wall
+    const x = canvas.width / 2;
+    const y = canvas.height * 0.54;
+    const maxW = canvas.width * 0.96;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(10,6,4,0.82)';
+    ctx.lineWidth = fontPx * 0.14;
+    ctx.strokeText(text, x, y, maxW);
+    ctx.shadowColor = 'rgba(255,196,120,0.5)';
+    ctx.shadowBlur = fontPx * 0.18;
+    ctx.fillStyle = '#ffe2a6';
+    ctx.fillText(text, x, y, maxW);
   }
 }

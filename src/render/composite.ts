@@ -34,6 +34,7 @@ const STAGE_FRAG = /* glsl */ `
   uniform float uScroll;
   uniform float uContrast;
   uniform float uDetail;
+  uniform float uLift;
   uniform float uTime;
   uniform float uUnroll;
   varying vec2 vUv;
@@ -54,7 +55,9 @@ const STAGE_FRAG = /* glsl */ `
     vec2 q = vec2(st.x / (uAspect * 0.5 + 0.03), st.y / 0.58);
     float qr = length(q);
     // lamplight: a hot core, a long warm falloff, a soft tail into the room
-    float pool = (1.0 - smoothstep(0.42, 1.06, qr)) * (0.82 + 0.18 * (1.0 - smoothstep(0.0, 0.55, qr)));
+    float pool = (1.0 - smoothstep(0.42, mix(1.06, 1.28, uLift), qr)) * (0.82 + 0.18 * (1.0 - smoothstep(0.0, 0.55, qr)));
+    // recordings: a longer, softer tail so a phone screen can read the edges
+    pool += uLift * 0.1 * (1.0 - smoothstep(0.9, 1.7, qr));
     pool *= uLight * (0.94 + 0.06 * uFlicker);
     // colour temperature: lamp-core at the centre, lamp-mid, lamp-edge at the rim
     vec3 core = vec3(1.0, 0.851, 0.627);
@@ -125,6 +128,7 @@ export class StageComposite {
         uScroll: { value: 0 },
         uContrast: { value: 0 },
         uDetail: { value: 1 },
+        uLift: { value: 0 },
         uTime: { value: 0 },
         uUnroll: { value: 1 },
       },
@@ -269,23 +273,23 @@ export class RoomDim {
           if (tw < tf && tw < 1e8) {
             // plaster: soft large blotches, fine grain, a hint of trowel strokes
             float g = fbm(st * 2.2) * 0.6 + fbm(st * 9.0 + 4.0) * 0.3 + vnoise(st * vec2(40.0, 22.0)) * 0.1;
-            vec3 albedo = vec3(0.62, 0.56, 0.5) * (0.9 + 0.16 * g);
+            vec3 albedo = vec3(0.64, 0.57, 0.5) * (0.86 + 0.26 * g);
             // lamplight falls off around the stage (a warm vignette), darker far away
             vec2 q = vec2(st.x / (uHeight * (uAspect * 0.5 + 0.35)), st.y / (uHeight * 0.85));
             float r = length(q);
-            float spill = exp(-r * r * 0.9) * 0.34 + exp(-r * r * 3.0) * 0.18;
+            float spill = exp(-r * r * 0.55) * 0.46 + exp(-r * r * 2.4) * 0.22;
             // the lantern's own glow on the wall below and beside it
             vec3 wp = uOrigin + uRight * st.x + uUp * st.y;
             float dl = length(wp - uLantern);
             spill += 0.1 / (1.0 + dl * dl * 6.0);
-            col = albedo * (0.022 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
+            col = albedo * (0.045 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
           } else if (tf < 1e8) {
             vec3 hit = ro + rd * tf;
             float grain = vnoise(vec2(hit.x * 1.5, hit.z * 26.0)) * 0.5 + vnoise(hit.xz * 6.0) * 0.5;
             vec3 wood = vec3(0.16, 0.1, 0.065) * (0.8 + 0.3 * grain);
             float dl = length(hit.xz - uLantern.xz);
-            float spill = 0.55 / (1.0 + dl * dl * 5.0) + 0.06 * exp(-pow(length(hit - uOrigin) / (uHeight * 2.5), 2.0));
-            col = wood * (0.02 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
+            float spill = 0.75 / (1.0 + dl * dl * 4.0) + 0.12 * exp(-pow(length(hit - uOrigin) / (uHeight * 2.5), 2.0));
+            col = wood * (0.045 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
           }
           return vec4(col, 1.0);
         }

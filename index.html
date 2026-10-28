@@ -51,15 +51,15 @@
       }
       button.begin:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
       button.begin:focus-visible, .opts input:focus-visible { outline: 3px solid #fff3dc; outline-offset: 3px; }
-      .steps { list-style: none; counter-reset: step; margin: 6px auto 30px; padding: 0; max-width: 680px; display: grid; gap: 14px; text-align: left; }
-      .steps li { counter-increment: step; display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 18px; font-size: clamp(20px, 2.3vw, 26px); color: var(--ink); }
-      .steps svg { width: 56px; height: 56px; fill: var(--ink); }
+      .steps { list-style: none; counter-reset: step; margin: 6px auto 34px; padding: 0; max-width: 760px; display: grid; gap: 18px; text-align: left; }
+      .steps li { counter-increment: step; display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 22px; font-size: clamp(26px, 3vw, 34px); color: var(--ink); }
+      .steps svg { width: 72px; height: 72px; fill: var(--ink); }
       .steps svg .wall { fill: #8a6a4e; }
       .steps svg .glow { fill: var(--amber); }
       .steps svg .shadow { fill: #f6e7cf; }
       .steps span::before { content: counter(step) '. '; color: var(--amber); }
       details.settings { margin: 26px auto 0; max-width: 680px; text-align: left; }
-      details.settings summary { cursor: pointer; font-size: clamp(18px, 1.9vw, 21px); color: var(--muted); letter-spacing: 0.08em; font-variant: small-caps; list-style: none; text-align: center; }
+      details.settings summary { cursor: pointer; font-size: clamp(24px, 2.5vw, 28px); color: var(--muted); letter-spacing: 0.08em; font-variant: small-caps; list-style: none; text-align: center; }
       details.settings summary::-webkit-details-marker { display: none; }
       details.settings summary::after { content: ' ▾'; }
       details.settings[open] summary::after { content: ' ▴'; }

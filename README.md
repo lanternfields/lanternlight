@@ -22,7 +22,11 @@ Hands first (controllers become rod puppets), seated, about 10 minutes, no insta
 | Hand shapes | Rotation-, size- and position-invariant features with hysteresis, validated on IWER's captured hand skeletons with 6 mm noise. The core mechanics (position, size, pinch to bite) need no pose recognition. | `src/core/hand-features.ts` |
 | Story | Prologue, shadow-touch menu, *The Hungry Crocodile*, *Rabbit's Bridge*, *The Moon Wolf*, curtain call. Every beat has an assist (a paper plank for the bridge, a timid wolf, a rabbit that comes anyway); there are no fail states. | `src/core/story.ts`, `src/core/rabbit.ts`, `src/core/physics2d.ts` |
 | Rendering | One visual language, written down in [STYLE_GUIDE.md](STYLE_GUIDE.md): a paper-cut shadow theatre lit by one lantern. Hands (and the ghost hints, cast by the same caster) are tapered SDF capsules plus a contoured palm and a fading forearm. Everything renders into a 4-channel mask (384–1024 px, 4× MSAA); one blur pass gives hands a physically scaled penumbra and paper cut-outs a fixed paper edge, so every edge comes from the same lamp. Cut-outs are smooth curves (SVG-style paths) and capsules; cut-outs hide the light behind them. Each tale opens with a wordless title card; the crocodile tale dresses your hand as a crocodile (eye, scutes, teeth that move with the jaw) on a river with reeds. One composite quad adds lamplight over passthrough; the room is dimmed to a warm black with amber spill around the stage. | `src/render/*` |
-| Audio | Fully procedural WebAudio: kalimba lullaby, lantern crackle, foley, HRTF-spatialised. | `src/audio/audio-engine.ts` |
+| Audio | Fully procedural WebAudio, HRTF-spatialised:
+- a kalimba lullaby;
+- the lantern's hum and crackle;
+- title chimes, the croc snap and gulp, the wolf's scare flare, bolt and howl, and the moon's answer;
+- the curtain call, a paper flutter as each line unfurls, and a gentle limiter. | `src/audio/audio-engine.ts` |
 | Perf | Adaptive quality (stage resolution 384–1024 px, foveation) driven by **missed vsyncs** against the session's real refresh rate, with hysteresis and back-off. Requests 90 Hz on Quest 3/3S/Pro; starts lower (and is capped) on Quest 2 and the original Quest. | `src/core/perf.ts` |
 
 **Comfort and accessibility:**
@@ -78,6 +82,11 @@ The capture records the real app in IWER at a perfectly smooth 60 fps on any mac
   steering through the app's own projection, smooth joint-by-joint blends between captured
   poses, and a subtle tremor.
 - The clock then advances exactly 1/60 s, the frame is screenshotted, and ffmpeg encodes the frames.
+
+The capture is silent while it runs, so every frame's story sound events, flame and music level
+are logged. Afterwards the app's own procedural `AudioEngine` renders the soundtrack in an
+`OfflineAudioContext`, in exact sync. That gives the same sounds a player hears, not a separate mix.
+It is loudness-normalised (-16 LUFS) and muxed onto the frames.
 
 The emulator's own UI is hidden; nothing is composited or faked. Shadow before/after stills:
 `node e2e/pose-stills.mjs <label>`.

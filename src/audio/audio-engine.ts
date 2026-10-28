@@ -17,8 +17,17 @@ const SCALE = [293.66, 329.63, 369.99, 440.0, 493.88, 587.33, 659.25, 739.99, 88
 const LULLABY = [4, -1, 3, 5, 2, -1, 3, -1, 4, 6, 5, -1, 3, 2, 0, -1, 2, -1, 3, 4, 5, -1, 7, 6, 4, -1, 3, 2, 3, -1, -1, -1];
 
 export class AudioEngine {
-  ctx: AudioContext | null = null;
+  ctx: BaseAudioContext | null = null;
+  /**
+   * Offline mode (the soundtrack of a frame-stepped capture): sounds are
+   * scheduled at `clock` seconds instead of the context's current time, and
+   * the context does not need to be running.
+   */
+  offline = false;
+  clock = 0;
   private master!: GainNode;
+  private limiter!: DynamicsCompressorNode;
+  private humGain!: GainNode;
   private reverb!: ConvolverNode;
   private reverbSend!: GainNode;
   private musicGain!: GainNode;
@@ -38,19 +47,46 @@ export class AudioEngine {
   /** Count of sounds played (diagnostics/tests). */
   played = 0;
 
+  private now(): number {
+    return this.offline ? this.clock : this.ctx!.currentTime;
+  }
+
+  private live(): boolean {
+    const ctx = this.ctx;
+    return !!ctx && (this.offline || ctx.state === 'running');
+  }
+
   /** Must be called from a user gesture (entering XR counts). */
   start(): void {
     if (this.ctx) {
-      void this.ctx.resume();
+      if (!this.offline) void (this.ctx as AudioContext).resume();
       return;
     }
     const AC = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
     if (!AC) return;
-    const ctx = new AC();
+    this.build(new AC());
+  }
+
+  /** Builds the same graph on an OfflineAudioContext (capture soundtrack). */
+  startOffline(ctx: OfflineAudioContext): void {
+    this.offline = true;
+    this.clock = 0;
+    this.build(ctx);
+  }
+
+  private build(ctx: BaseAudioContext): void {
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = this.volume;
-    this.master.connect(ctx.destination);
+    // a gentle limiter so chimes and the scare never clip
+    this.limiter = ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = -10;
+    this.limiter.knee.value = 8;
+    this.limiter.ratio.value = 6;
+    this.limiter.attack.value = 0.004;
+    this.limiter.release.value = 0.25;
+    this.master.connect(this.limiter);
+    this.limiter.connect(ctx.destination);
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.makeImpulse(1.8, 2.6);
     this.reverbSend = ctx.createGain();
@@ -67,20 +103,42 @@ export class AudioEngine {
     this.lanternPanner = this.makePanner();
     this.crackleGain.connect(this.lanternPanner);
     this.lanternPanner.connect(this.master);
-    this.nextNote = ctx.currentTime + 0.5;
+    // the lantern's warm hum: two soft sines, slowly beating, under the crackle
+    this.humGain = ctx.createGain();
+    this.humGain.gain.value = 0;
+    this.humGain.connect(this.lanternPanner);
+    for (const [f, a] of [
+      [98, 1],
+      [147.3, 0.45],
+      [196.6, 0.18],
+    ]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.value = a;
+      o.connect(g).connect(this.humGain);
+      o.start();
+    }
+    this.nextNote = this.now() + 0.5;
+  }
+
+  /** Static listener pose (the capture's seated camera). */
+  setListener(pos: Vec, forward: Vec, up: Vec): void {
+    this.updateListener(pos, forward, up);
   }
 
   setVolume(v: number): void {
     this.volume = v;
-    if (this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.1);
+    if (this.ctx) this.master.gain.setTargetAtTime(v, this.now(), 0.1);
   }
 
   suspend(): void {
-    void this.ctx?.suspend();
+    if (!this.offline) void (this.ctx as AudioContext | null)?.suspend();
   }
 
   resume(): void {
-    void this.ctx?.resume();
+    if (!this.offline) void (this.ctx as AudioContext | null)?.resume();
   }
 
   private makeNoise(seconds: number): AudioBuffer {
@@ -160,9 +218,10 @@ export class AudioEngine {
 
   /** Per-frame: schedules music and crackle. */
   tick(dt: number, flame: number, musicLevel: number): void {
-    const ctx = this.ctx;
-    if (!ctx || ctx.state !== 'running') return;
+    if (!this.live()) return;
+    const ctx = { currentTime: this.now() };
     this.crackleGain.gain.setTargetAtTime(flame * 0.5, ctx.currentTime, 0.3);
+    this.humGain.gain.setTargetAtTime(flame * 0.035, ctx.currentTime, 0.6);
     this.musicGain.gain.setTargetAtTime(musicLevel * 0.22, ctx.currentTime, 0.8);
     // crackle grains
     this.crackleTimer -= dt;
@@ -194,7 +253,7 @@ export class AudioEngine {
     bp.frequency.value = freq;
     bp.Q.value = 3;
     const g = ctx.createGain();
-    const t = ctx.currentTime;
+    const t = this.now();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(bp).connect(g).connect(dest);
@@ -261,9 +320,9 @@ export class AudioEngine {
   /** Plays a story event at stage coordinates. */
   play(type: SoundEvent, s = 0, t = 0, value = 0): void {
     const ctx = this.ctx;
-    if (!ctx || ctx.state !== 'running') return;
+    if (!ctx || !this.live()) return;
     this.played++;
-    const now = ctx.currentTime + 0.01;
+    const now = this.now() + 0.01;
     const at = this.pannerAt(this.stageWorld(s, t));
     const wet = ctx.createGain();
     wet.gain.value = 1;
@@ -302,14 +361,17 @@ export class AudioEngine {
         this.noiseHit(wet, now, 0.12, 0.03, 'bandpass', 500, 900);
         break;
       case 'chomp':
-        this.tone(wet, 950, now, 0.05, 0.12, 'triangle', 600);
-        this.noiseHit(wet, now, 0.06, 0.1, 'bandpass', 2400);
-        this.tone(wet, 140, now + 0.02, 0.18, 0.08, 'sine', 90);
+        // a wooden clack and a jaw thock
+        this.noiseHit(wet, now, 0.025, 0.22, 'bandpass', 3200);
+        this.tone(wet, 1250, now, 0.035, 0.1, 'triangle', 700);
+        this.tone(wet, 160, now + 0.012, 0.16, 0.16, 'sine', 70);
         break;
       case 'eat': {
+        // a little gulp, then the swallowed firefly glows (a rising note)
         const i = Math.min(SCALE.length - 1, 2 + value);
-        this.pluck(SCALE[i], now, 0.32, wet, 1.6);
-        this.pluck(SCALE[i] * 2, now + 0.05, 0.1, wet, 1.0);
+        this.tone(wet, 240, now + 0.04, 0.12, 0.08, 'sine', 130);
+        this.pluck(SCALE[i], now + 0.12, 0.3, wet, 1.6);
+        this.pluck(SCALE[i] * 2, now + 0.17, 0.1, wet, 1.0);
         break;
       }
       case 'iconTick':
@@ -359,9 +421,18 @@ export class AudioEngine {
         this.tone(wet, 880, now, 0.18, 0.05, 'sine', 640);
         this.tone(wet, 820, now + 0.22, 0.22, 0.04, 'sine', 560);
         break;
+      case 'scare': {
+        // the flare: a bright bloom of light in sound, a low thump under it
+        this.noiseHit(wet, now, 0.5, 0.16, 'bandpass', 500, 4200);
+        [4, 7, 9].forEach((i, k) => this.pluck(SCALE[i] * 2, now + 0.02 + k * 0.025, 0.18, wet, 1.2));
+        this.tone(wet, 70, now, 0.35, 0.22, 'sine', 42);
+        this.tone(wet, 980, now + 0.05, 0.22, 0.05, 'sine', 620); // a little yelp
+        break;
+      }
       case 'wolfFlee':
-        for (let i = 0; i < 8; i++) this.noiseHit(wet, now + i * 0.07, 0.05, 0.05, 'lowpass', 700);
-        this.tone(wet, 700, now, 0.25, 0.04, 'sine', 950);
+        // the bolt: quickening paws and a whoosh away
+        for (let i = 0; i < 9; i++) this.noiseHit(wet, now + i * (0.07 - i * 0.004), 0.045, 0.06, 'lowpass', 750);
+        this.noiseHit(wet, now + 0.05, 0.55, 0.07, 'bandpass', 1400, 380);
         break;
       case 'howl': {
         // a soft, musical howl: a gliding voice with vibrato, lots of reverb
@@ -390,8 +461,28 @@ export class AudioEngine {
         vib.start(now);
         o.stop(now + 2.5);
         vib.stop(now + 2.5);
+        // ...and the moon answers: a slow music-box phrase over a soft drone
+        [7, 9, 7, 5, 4, 2, 4].forEach((i, k) => this.pluck(SCALE[i], now + 1.6 + k * 0.42, 0.2, wet, 2.4));
+        this.tone(wet, SCALE[0] / 2, now + 1.4, 4.2, 0.05);
+        this.tone(wet, SCALE[4] / 2, now + 1.4, 4.2, 0.035);
         break;
       }
+      case 'curtain':
+        // the curtain call: a low bell, then a warm rising fanfare
+        this.tone(wet, SCALE[0] / 2, now, 3.2, 0.09);
+        [0, 2, 4, 5, 7, 9].forEach((i, k) => this.pluck(SCALE[i], now + 0.15 + k * 0.1, 0.24, wet, 2.4));
+        [4, 7].forEach((i) => this.pluck(SCALE[i] * 2, now + 0.8, 0.14, wet, 2.8));
+        break;
+      case 'goodnight':
+        // the last chord of the lullaby, very soft and long
+        [0, 2, 4].forEach((i, k) => this.pluck(SCALE[i] / 2, now + k * 0.18, 0.2, wet, 4.5));
+        this.tone(wet, SCALE[0] / 4, now, 5, 0.06);
+        break;
+      case 'ribbon':
+        // a paper ribbon unfurling: a soft flutter
+        this.noiseHit(wet, now, 0.32, 0.03, 'bandpass', 1800, 900);
+        this.noiseHit(wet, now + 0.08, 0.22, 0.02, 'highpass', 3000);
+        break;
       case 'title': {
         // the curtain opens on a tale: a low bell, then a short rising phrase
         // whose shape differs per tale (value: 0 croc, 1 bridge, 2 wolf)
