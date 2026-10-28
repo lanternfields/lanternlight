@@ -171,6 +171,14 @@
     pull('thumb-phalanx-distal', 0.55);
     pull('thumb-tip', 0.86);
   }
+  // One finger up (the finale's branch): a fist, the index finger straight.
+  composite('pointUp', 'fist', [
+    ['open', ['index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip']],
+  ]);
+  // The bridge: a flat hand with the fingers a little apart, so its shadow keeps them.
+  composite('bridgeHand', 'flat', [['open', ['index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'], 0.45]]);
+  /** The bridge hand's roll toward the light (fingers show in its shadow). */
+  const BRIDGE_ROLL = 0;
   const setPose = (name, dur = 0.45) => {
     if (pose.to === name) return;
     // blend from exactly what the hand shows now (smooth even mid-blend)
@@ -199,6 +207,7 @@
     if (!a.present) return null;
     if (name === 'mouth') return [a.mouthS, a.mouthT];
     if (name === 'handTop') return [(a.handMinS + a.handMaxS) / 2, a.handMaxT];
+    if (name === 'tip') return [a.tipS, a.tipT];
     return [(a.handMinS + a.handMaxS) / 2, (a.handMinT + a.handMaxT) / 2];
   };
   /** World point whose shadow lands at stage (s,t) with magnification m. */
@@ -241,6 +250,7 @@
     rot: { pitch: 60, yaw: 0, roll: 0 },
     rotVel: { pitch: 0, yaw: 0, roll: 0 },
     tau: 0.16,
+    still: false,
   };
   // Damped springs (zeta 0.85: moves ease in, ease out and overshoot a touch).
   const ZETA = 0.85;
@@ -282,7 +292,7 @@
     for (const k of ['pitch', 'yaw', 'roll']) [ctl.rot[k], ctl.rotVel[k]] = springStep(ctl.rot[k], ctl.rotVel[k], ctl.euler[k], 7.5, dt);
     ctl.pinch += (ctl.pinchTarget - ctl.pinch) * (1 - Math.exp(-dt * ctl.pinchRate));
     // apply with a tiny living tremor
-    const tr = 0.0011;
+    const tr = ctl.still ? 0.0004 : 0.0011;
     hand.position.x = ctl.pos[0] + tremor(time, 0) * tr;
     hand.position.y = ctl.pos[1] + tremor(time, 1.7) * tr;
     hand.position.z = ctl.pos[2] + tremor(time, 3.1) * tr;
@@ -413,16 +423,21 @@
     yield* chooseTale('bridge');
     mark('bridge');
     rest();
-    yield* wait(3.2); // the rabbit waits at the edge; the hint appears
-    setPose('flat', 0.6);
-    orient(-30, 90, 0);
+    // the rabbit waits at the edge while the storyteller sets the scene; the hand comes with the second line
+    {
+      const l0 = S().view.text.lineId;
+      yield* until(() => !S().view.title.id, 5);
+      yield* until(() => S().view.text.lineId >= l0 + 2, 10);
+    }
+    setPose('bridgeHand', 0.6);
+    orient(-22, 90, BRIDGE_ROLL);
     ctl.tau = 0.3;
     setShot('inset', 1, 0.35); // the hand laid flat, from the side
     t0 = time;
     let insetOff = false;
     while (S().scene === 'bridge' && S().stats.crossings < 1 && time - t0 < 30) {
-      const round = S().stats.crossings;
-      shadowTo(0.0, -0.37, { feature: 'handTop', size: 1.05 });
+      // its top flush with the tops of the banks
+      shadowTo(0.0, -0.358, { feature: 'handTop', size: 1.0 });
       if (!insetOff && time - t0 > 4.5) {
         insetOff = true;
         setShot('inset', 0, 0.35);
@@ -440,10 +455,56 @@
     yield* wolfBeat();
     mark('wolf-done');
     rest();
-    yield* until(() => S().scene === 'finale' || S().scene === 'menu', 20);
+    yield* finaleBeat();
+    mark('end');
+  }
+
+  /**
+   * The Last Light: the bird flits about while F1 reads; one finger comes up
+   * between Pip and the wolf and holds very still; the bird lands on it. The
+   * spark crossing the room plays in the wide shot; back in close the bird
+   * carries the light away; then the wide shot again as the room comes back.
+   */
+  function* finaleBeat() {
+    rest();
+    setPose('relaxed', 0.5);
+    yield* until(() => S().scene === 'finale', 25);
     mark('finale');
-    yield* until(() => S().scene === 'menu', 20);
-    yield* wait(2.5);
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(2.8);
+    setPose('pointUp', 0.6);
+    orient(60, 0, 0);
+    ctl.tau = 0.42;
+    shadowTo(-0.06, -0.14, { feature: 'tip', size: 1 });
+    yield* wait(0.9);
+    ctl.still = true;
+    yield* until(() => S().beat === 'perched', 14);
+    mark('finale-perch');
+    yield* until(() => S().beat === 'spark', 10);
+    // the finger lowers slowly; the spark leaves the lantern (wide: the room, the lantern, the wall)
+    ctl.still = false;
+    setShot('wide', 1, 1.1);
+    ctl.tau = 0.7;
+    yield* wait(0.3);
+    rest();
+    setPose('relaxed', 0.9);
+    yield* until(() => S().beat === 'away', 4);
+    setShot('wide', 0, 1.0);
+    yield* until(() => S().beat === 'lightsUp', 8);
+    // the pool fades and the room returns
+    setShot('wide', 1, 2.2);
+    yield* until(() => S().beat === 'goodnight', 12);
+    yield* wait(3.5);
+    ctl.tau = 0.16;
+  }
+
+  /** Just the finale (its own clip). */
+  function* finaleClip() {
+    rest();
+    setPose('relaxed', 0.1);
+    yield* wait(0.3);
+    goto('finale');
+    yield* finaleBeat();
     mark('end');
   }
 
@@ -522,21 +583,22 @@
     orient(60, 0, 0);
     ctl.tau = 0.4;
     ctl.size = 1;
-    // above and right of where the wolf will stop, so its shape stays clear
-    shadowTo(0.42, 0.27, { size: 1 });
+    // above and right of where the wolf will stop, so the wolf stays in clear light
+    shadowTo(0.62, 0.17, { size: 1 });
     yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 10);
     // grow: a slow, continuous swell (the wolf hesitates as it builds) - the
     // inset shows why: the hand comes back toward you
     setShot('inset', 1, 0.35);
     ctl.tau = 0.5;
-    shadowTo(0.42, 0.27, { size: 1.62 });
+    shadowTo(0.62, 0.17, { size: 1.5 });
     yield* until(() => S().wolf.state === 'rear' || S().wolf.state === 'flee', 8);
     mark('wolf-scared');
-    yield* wait(0.45);
+    yield* wait(0.6);
     setShot('inset', 0, 0.4);
-    ctl.tau = 0.35;
+    // the hand eases out of the light (never a one-frame vanish)
+    ctl.tau = 0.75;
     rest();
-    setPose('relaxed', 0.6);
+    setPose('relaxed', 0.9);
     yield* until(() => S().wolf.state === 'howl', 10);
     mark('wolf-howl');
     yield* until(() => S().scene !== 'wolf', 16);
@@ -626,7 +688,7 @@
     yield* shoot('text-line-pip');
     setPose('relaxed', 0.6);
     rest();
-    yield* until(() => S().scene === 'menu' && S().view.text.line === 'Choose a story.' && S().view.text.lineAlpha > 0.99, 15);
+    yield* until(() => S().scene === 'menu' && S().view.text.line === 'Three stories tonight, then bed.' && S().view.text.lineAlpha > 0.99, 15);
     yield* shoot('text-line-menu');
     goto('croc');
     yield* wait(1.3);
@@ -718,15 +780,26 @@
       setPose('crocOpen', 0.32);
       yield* wait(0.5);
     }
+    // the close: full at last (skip ahead), the crocodile drifts off glowing
+    S().eaten = 6;
+    S().view.croc.full = 6 / 7;
+    yield* wait(0.2);
+    S().eaten = 7;
+    S().view.croc.gulps++;
+    S().view.croc.full = 1;
+    yield* wait(1.6);
+    yield* shoot('croc-nightlight');
+    yield* wait(2.4);
+    yield* shoot('croc-drift');
     // Rabbit's Bridge
     setPose('relaxed', 0.5);
     rest();
     goto('bridge');
     yield* tale3('bridge', 'bridge');
-    setPose('flat', 0.6);
-    orient(-30, 90, 0);
+    setPose('bridgeHand', 0.6);
+    orient(-22, 90, BRIDGE_ROLL);
     ctl.tau = 0.3;
-    shadowTo(0.0, -0.37, { feature: 'handTop', size: 1.0 });
+    shadowTo(0.0, -0.358, { feature: 'handTop', size: 1.0 });
     yield* until(() => S().rabbit.onShadow, 12);
     yield* wait(0.3);
     yield* shoot('bridge-play');
@@ -738,18 +811,69 @@
     yield* tale3('wolf', 'wolf');
     setPose('open', 0.5);
     orient(60, 0, 0);
-    shadowTo(-0.05, 0.02, { size: 1 });
-    yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.6, 12);
-    ctl.tau = 0.32;
-    ctl.size = 1.6;
-    yield* until(() => S().wolf.state === 'cower' || S().wolf.state === 'flee', 8);
-    yield* wait(0.3);
-    yield* shoot('wolf-scare');
-    ctl.size = 1;
+    shadowTo(0.62, 0.17, { size: 1 });
+    yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 12);
+    ctl.tau = 0.5;
+    shadowTo(0.62, 0.17, { size: 1.5 });
+    yield* until(() => S().wolf.hesitate > 0.5, 6);
+    yield* shoot('wolf-hesitate');
+    yield* until(() => S().wolf.state === 'rear', 8);
+    yield* wait(0.12);
+    yield* shoot('wolf-rear');
+    ctl.tau = 0.75;
     rest();
+    setPose('relaxed', 0.9);
+    yield* until(() => S().wolf.state === 'howl', 12);
+    yield* wait(1.2);
+    yield* shoot('wolf-howl');
+    ctl.size = 1;
+    ctl.tau = 0.16;
     goto('finale');
-    yield* wait(3.4);
-    yield* shoot('finale');
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(1.5);
+    yield* shoot('finale-flit');
+    setPose('pointUp', 0.6);
+    orient(60, 0, 0);
+    ctl.tau = 0.42;
+    shadowTo(-0.06, -0.14, { feature: 'tip', size: 1 });
+    yield* wait(0.9);
+    ctl.still = true;
+    yield* until(() => S().beat === 'perched', 14);
+    yield* wait(0.8);
+    yield* shoot('finale-perch');
+    yield* until(() => S().beat === 'away', 10);
+    ctl.still = false;
+    rest();
+    yield* wait(0.8);
+    yield* shoot('finale-away');
+    yield* until(() => S().beat === 'goodnight', 12);
+    yield* wait(1.0);
+    yield* shoot('finale-goodnight');
+  }
+
+  /** Tuning: the bridge hand in several poses (the story frozen once the set is up). */
+  function* bridgeTune() {
+    setPose('relaxed', 0.1);
+    rest();
+    goto('bridge');
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(0.3);
+    app().freezeStory = true;
+    const variants = [
+      ['open', -22, 90, 60],
+      ['open', -22, 90, 80],
+      ['bridgeHand', -22, 90, 70],
+      ['open', -10, 90, 70],
+    ];
+    for (const [p, pitch, yaw, roll] of variants) {
+      setPose(p, 0.3);
+      orient(pitch, yaw, roll);
+      ctl.tau = 0.2;
+      shadowTo(0.0, -0.358, { feature: 'handTop', size: 1.0 });
+      yield* wait(3.6);
+      yield* shoot(`bridge-${p}-${pitch}-${roll}`);
+    }
+    app().freezeStory = false;
   }
 
   applyBlend();
@@ -759,7 +883,7 @@
     marks,
     start(name = 'coreLoop') {
       if (name !== 'coreLoop') shotCh.wide.from = shotCh.wide.to = 0;
-      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale }[name]();
+      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale, finaleClip, bridgeTune }[name]();
       gen.next(0);
       done = false;
       time = 0;

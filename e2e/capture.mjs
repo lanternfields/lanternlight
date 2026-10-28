@@ -128,6 +128,35 @@ await page.evaluate(() => {
     wide: look(wpos, wtarget, 60),
     inset: look(ipos, itarget, 44),
   };
+  // The inset is framed tight on the hand and the lantern each frame (the
+  // critic: the hand read as a tiny lump): from the wall side, a little to the
+  // right and above, so the hand shows the same profile its shadow does.
+  const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+  const len = (v) => Math.hypot(v.x, v.y, v.z) || 1;
+  let dir = add(add(add({ x: 0, y: 0, z: 0 }, fr.normal, -0.78), fr.right, 0.48), up, 0.22);
+  const dl = len(dir);
+  dir = { x: dir.x / dl, y: dir.y / dl, z: dir.z / dl };
+  const insetFov = 30;
+  let smooth = null;
+  window.__insetShot = (fresh) => {
+    if (fresh) smooth = null;
+    const hp = window.IWER_DEVICE.hands.right.position;
+    const lantern = app.lantern.group.position;
+    const h = { x: hp.x, y: hp.y + 0.03, z: hp.z };
+    // the hand is the subject: two thirds hand, one third lantern
+    const target = { x: h.x * 0.68 + lantern.x * 0.32, y: h.y * 0.68 + lantern.y * 0.32, z: h.z * 0.68 + lantern.z * 0.32 };
+    const span = len(sub(h, lantern)) + 0.2;
+    const dist = Math.max(0.32, Math.min(0.85, (span / (2 * Math.tan((insetFov * Math.PI) / 360))) * 0.62));
+    // eased, so the inset camera glides rather than jitters with the hand
+    if (!smooth) smooth = { ...target, dist };
+    const k = 0.12;
+    smooth.x += (target.x - smooth.x) * k;
+    smooth.y += (target.y - smooth.y) * k;
+    smooth.z += (target.z - smooth.z) * k;
+    smooth.dist += (dist - smooth.dist) * k;
+    const pos = add(smooth, dir, smooth.dist);
+    return look(pos, smooth, insetFov);
+  };
   const slerp = (a, b, t) => {
     let cos = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
     let bb = b;
@@ -176,6 +205,8 @@ const insetsDir = path.join(OUT, `${name}-insets`);
 fs.rmSync(insetsDir, { recursive: true, force: true });
 fs.mkdirSync(insetsDir, { recursive: true });
 const insetAlpha = {};
+const ribbonLog = [];
+let prevInset = false;
 while (!last.done && last.t < maxSeconds) {
   last = await page.evaluate((fps) => {
     const r = window.__director.tick(1 / fps);
@@ -187,22 +218,28 @@ while (!last.done && last.t < maxSeconds) {
     app.captureShot = w > 0.02 ? 'wide' : 'close';
     window.__vclock.step(1000 / fps);
     r.audio = [app.story.view.flame, app.lastMusic, app.story.events.map((e) => [e.type, e.s, e.t, e.value]), app.audio.ambience];
+    const rb = app.ribbonStats;
+    r.ribbon = [rb.line, +rb.opacity.toFixed(4), +rb.story.toFixed(5), +rb.hands.toFixed(5), app.captureShot];
     return r;
   }, FPS);
+  ribbonLog.push([n / FPS, ...last.ribbon]);
   audioLog.push([n / FPS, last.audio[0], last.audio[1], last.audio[2], last.audio[3]]);
   const frameIndex = n;
   await grab();
-  if (last.shot && last.shot.inset > 0.01) {
+  const insetNow = !!(last.shot && last.shot.inset > 0.01);
+  if (insetNow) {
     // the inset: the same instant from the side (a zero-length frame: nothing advances)
-    await page.evaluate(() => {
+    await page.evaluate((fresh) => {
       const app = window.__lantern.app;
       app.captureShot = 'inset';
-      window.__setCamera(window.__shots.inset, window.__shots.inset, 0);
+      const ins = window.__insetShot(fresh);
+      window.__setCamera(ins, ins, 0);
       window.__vclock.step(0);
-    });
+    }, !prevInset);
     await page.screenshot({ path: path.join(insetsDir, String(frameIndex).padStart(6, '0') + '.jpg'), type: 'jpeg', quality: 90 });
     insetAlpha[frameIndex] = +last.shot.inset.toFixed(3);
   }
+  prevInset = insetNow;
   if (n % 600 === 0) console.log('FRAME', n, 't', last.t.toFixed(1), last.scene, last.beat, `${((Date.now() - t0) / 1000).toFixed(0)}s real`);
 }
 const marks = await page.evaluate(() => window.__director.marks);
@@ -285,6 +322,41 @@ try {
   console.log('AUDIO failed', e.message);
 }
 await browser.close();
+// ---- legibility proof: every storyteller line, fully opaque for its whole hold?
+{
+  const runs = [];
+  let cur = null;
+  for (const [t, line, op, story, hands, shot] of ribbonLog) {
+    if (!line || op <= 0.001) {
+      if (cur) runs.push(cur);
+      cur = null;
+      continue;
+    }
+    if (!cur || cur.line !== line) {
+      if (cur) runs.push(cur);
+      cur = { line, start: t, full: -1, leave: -1, end: t, dips: 0, minHeld: 1, story: 0, hands: 0, shots: new Set() };
+    }
+    cur.end = t;
+    if (op >= 0.999) {
+      if (cur.full < 0) cur.full = t;
+      else if (cur.leave >= 0 && cur.leave < t - 1.5 / FPS) cur.dips++;
+      cur.leave = t;
+    }
+    if (cur.full >= 0) cur.story = Math.max(cur.story, story);
+    cur.hands = Math.max(cur.hands, hands);
+    cur.shots.add(shot);
+  }
+  if (cur) runs.push(cur);
+  // within the hold (fully up .. starts to leave), the opacity never dips
+  for (const r of runs) {
+    r.held = r.full >= 0 && r.leave >= 0 ? +(r.leave - r.full).toFixed(2) : 0;
+    r.shots = [...r.shots];
+    for (const k of ['start', 'full', 'leave', 'end']) r[k] = +(+r[k]).toFixed(2);
+  }
+  const ok = runs.every((r) => r.full >= 0 && r.dips === 0 && r.story === 0);
+  fs.writeFileSync(path.join(OUT, `${name}.legibility.json`), JSON.stringify({ ok, rule: 'each line reaches full opacity, never dips while held, and no story character or the moon lies under it', lines: runs }, null, 2));
+  console.log('LEGIBILITY', ok ? 'OK' : 'FAIL', runs.length, 'lines', runs.filter((r) => r.dips || r.story).map((r) => r.line).join(' | '));
+}
 fs.writeFileSync(path.join(OUT, `${name}.marks.json`), JSON.stringify({ fps: FPS, landingSeconds: 1.5, marks }, null, 2));
 // picture-in-picture: composite the hand insets onto their frames
 if (Object.keys(insetAlpha).length) {

@@ -1,7 +1,9 @@
 """Picture-in-picture for recordings: inset_composite.py <frames_dir> <insets_dir>
 
-Each inset (a side view of the hand, rendered at the same instant as its
-frame) is scaled down and placed in the lower-right corner of the frame, with
+Each inset (a side view of the hand and the lantern, rendered at the same
+instant as its frame) is scaled down and placed in the upper-left corner of
+the frame (clear of the stage's banks, reeds and characters, and of the
+storyteller's ribbon in the middle), with
 a thin warm frame, a soft drop shadow and a small "your hand" label; its
 opacity follows the director's eased inset weight (insets_dir/alpha.json).
 Frames are rewritten in place (JPEG).
@@ -34,12 +36,12 @@ for key, a in alpha.items():
         continue
     frame = Image.open(fpath).convert('RGB')
     W, H = frame.size
-    iw = int(W * 0.3)
+    iw = int(W * 0.25)
     ih = int(iw * 9 / 16)
     inset = Image.open(ipath).convert('RGB').resize((iw, ih), Image.LANCZOS)
     margin = int(W * 0.022)
-    x0 = W - iw - margin
-    y0 = H - ih - margin
+    x0 = margin
+    y0 = margin
     # card: shadow, warm frame, the inset, a label
     card = Image.new('RGBA', (iw + 8, ih + 8), (242, 214, 160, 255))
     card.paste(inset, (4, 4))
