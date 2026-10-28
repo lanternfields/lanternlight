@@ -160,3 +160,30 @@ describe('the rabbit anticipates its hops', () => {
     expect(worst).toBeLessThan(0.06);
   });
 });
+
+describe('the wolf eases in and out', () => {
+  it('accelerates from rest, slows to a stop by the rabbit, and crouches before it bolts', async () => {
+    const { Wolf } = await import('../src/core/wolf.js');
+    const w = new Wolf();
+    w.enter(0.92, 0.065);
+    const vs: number[] = [];
+    for (let i = 0; i < 72 * 30 && w.state !== 'sit'; i++) {
+      w.update(1 / 72, false);
+      vs.push(w.vx);
+    }
+    expect(w.state).toBe('sit');
+    // no velocity jumps anywhere
+    for (let i = 1; i < vs.length; i++) expect(Math.abs(vs[i] - vs[i - 1])).toBeLessThan(0.006);
+    // it was moving at full prowl speed in the middle and almost stopped at the end
+    expect(Math.min(...vs)).toBeLessThan(-0.06);
+    expect(Math.abs(vs[vs.length - 1])).toBeLessThan(0.03); // and it settles to 0 while sitting
+    // scared: cowers, then a short crouch with no movement, then it runs
+    for (let i = 0; i < 72 * 3 && w.state !== 'flee'; i++) w.update(1 / 72, true);
+    expect(w.state).toBe('flee');
+    const x0 = w.x;
+    for (let i = 0; i < 8; i++) w.update(1 / 72, false);
+    expect(w.x - x0).toBeLessThan(0.01);
+    for (let i = 0; i < 72; i++) w.update(1 / 72, false);
+    expect(w.x - x0).toBeGreaterThan(0.2);
+  });
+});

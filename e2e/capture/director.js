@@ -431,6 +431,9 @@
     // ---- The Moon Wolf
     yield* chooseTale('wolf');
     mark('wolf');
+    rest();
+    yield* until(() => !S().view.title.id, 4); // let the title card play
+    yield* wait(0.6);
     setPose('open', 0.5);
     orient(60, 0, 0);
     shadowTo(-0.05, 0.02, { size: 1 });

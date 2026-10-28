@@ -92,7 +92,7 @@ Nothing may look pixelated or shimmer, on a Quest or in the capture.
 | Canvas text (captions, tester card, lantern menu) | drawn at 2× the size it appears at, **mipmapped** (`LinearMipmapLinearFilter`), anisotropy 4 |
 | 3D meshes near the viewer (lantern, rod puppets, scroll dowels) | ≥ 32 radial segments, ≥ 48 for lathed shapes; no visible facets at 30 cm |
 | Main renderer | `antialias: true`, `devicePixelRatio` from the device (IWSDK default); XR framebuffer scale 1.0 |
-| Capture | 1920×1080, frame-stepped at 60 fps, JPEG q95 → H.264 CRF 16 |
+| Capture | 1920×1080, frame-stepped at 60 fps (virtual clock), JPEG q92 → H.264 CRF 17, 50° vertical FOV framing the stage |
 | Texture filtering | **never** `NearestFilter`; every texture is linear (mipmapped if it can be minified) |
 
 Adaptive quality may lower the stage resolution under load; it never
