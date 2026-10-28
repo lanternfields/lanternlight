@@ -24,6 +24,7 @@ export class WolfPuppet {
   private readonly body = new Group();
   private readonly head = new Group();
   private readonly tail = new Group();
+  private readonly ears = new Group();
   private readonly legs: Group[] = [];
 
   constructor() {
@@ -66,15 +67,27 @@ export class WolfPuppet {
               [0.098, 0.01],
               [0.045, 0.008],
             ]),
+          ],
+          4,
+        ),
+        cut,
+      ),
+    );
+    // ears on their own pivot: up when bold, flat back when scared
+    this.ears.position.set(0.02, 0.048, 0);
+    this.ears.add(
+      new Mesh(
+        new ShapeGeometry(
+          [
             poly([
-              [0.005, 0.045],
-              [0.018, 0.098],
-              [0.035, 0.052],
+              [-0.015, -0.003],
+              [-0.002, 0.05],
+              [0.015, 0.004],
             ]),
             poly([
-              [0.028, 0.05],
-              [0.048, 0.094],
-              [0.058, 0.048],
+              [0.008, 0.002],
+              [0.028, 0.046],
+              [0.038, 0.0],
             ]),
           ],
           4,
@@ -82,6 +95,7 @@ export class WolfPuppet {
         cut,
       ),
     );
+    this.head.add(this.ears);
     this.head.add(new Mesh(new ShapeGeometry(ellipse(0.05, 0.038, 0.0055, 0.0045), 4), hole));
     this.body.add(this.head);
     // bushy tail
@@ -117,10 +131,30 @@ export class WolfPuppet {
   private readonly sTail = new Spring(0, 9, 0.55);
   private readonly sBodyRot = new Spring(0, 11, 0.85);
   private readonly sBodyY = new Spring(0, 14, 0.9);
+  private readonly sEars = new Spring(0, 16, 0.6);
+  private readonly sRear = new Spring(0, 18, 0.55);
+  private readonly sStretch = new Spring(0, 14, 0.8);
   private lastTime = -1;
   private wasVisible = false;
 
-  update(x: number, y: number, dir: number, state: WolfState, crouch: number, phase: number, visible: number, time: number): void {
+  /**
+   * @param scale drawing scale (1.15 = the menu/finale wolf; the wolf tale stages it bigger)
+   * @param hesitate 0..1 how much it hesitates (leans back, ears back)
+   * @param vx its speed (it stretches as it bolts)
+   */
+  update(
+    x: number,
+    y: number,
+    dir: number,
+    state: WolfState,
+    crouch: number,
+    phase: number,
+    visible: number,
+    time: number,
+    scale = 1.15,
+    hesitate = 0,
+    vx = 0,
+  ): void {
     this.group.visible = visible > 0.02 && state !== 'away';
     if (!this.group.visible) {
       this.wasVisible = false;
@@ -129,16 +163,45 @@ export class WolfPuppet {
     const dt = this.lastTime < 0 ? 0 : Math.min(0.1, Math.max(0, time - this.lastTime));
     this.lastTime = time;
     this.group.position.set(x, y, 0);
-    const k = 1.15;
-    this.group.scale.set(dir * k, k, 1);
     const walking = state === 'prowl' || state === 'flee' || state === 'return';
     const sitting = state === 'sit' || state === 'howl';
     const cower = state === 'cower';
+    const rear = state === 'rear';
+    const stalk = state === 'prowl';
+    // bolting: stretched long and low (squash & stretch), from its speed
+    const stretch = this.sStretch.update(state === 'flee' ? Math.min(1, Math.abs(vx) / 1.1) : 0, dt);
+    const k = scale;
+    this.group.scale.set(dir * k * (1 + 0.24 * stretch), k * (1 - 0.13 * stretch), 1);
     const headT =
-      state === 'howl' ? 0.65 + Math.sin(time * 2.2) * 0.04 : cower ? -0.45 * crouch : sitting ? -0.32 : Math.sin(time * 1.7) * 0.04;
-    const tailT = cower ? -1.1 * crouch : state === 'flee' ? 0.2 + Math.sin(phase * 2) * 0.1 : sitting ? -0.5 : 0.25 + Math.sin(time * 2.4) * 0.12;
-    const bodyRotT = sitting ? 0.32 : cower ? -0.06 : 0;
+      state === 'howl'
+        ? 0.68 + Math.sin(time * 2.2) * 0.05
+        : rear
+          ? 0.5
+          : cower
+            ? -0.45 * crouch
+            : sitting
+              ? -0.32
+              : stalk
+                ? -0.2 + 0.32 * hesitate + Math.sin(time * 1.7) * 0.03
+                : Math.sin(time * 1.7) * 0.04;
+    const tailT = rear
+      ? -1.15
+      : cower
+        ? -1.1 * crouch
+        : state === 'flee'
+          ? 0.35 + Math.sin(phase * 2) * 0.1
+          : sitting
+            ? -0.5
+            : stalk
+              ? -0.38 - 0.4 * hesitate + Math.sin(time * 2.4) * 0.05
+              : 0.25 + Math.sin(time * 2.4) * 0.12;
+    const bodyRotT = sitting ? 0.32 : cower ? -0.06 : stalk ? 0.1 * hesitate : 0;
     const bodyYT = -0.028 * crouch + (walking ? Math.abs(Math.sin(phase)) * 0.004 : 0);
+    // ears: up and alert while stalking, flat back as it gets scared
+    const earsT = rear || cower || state === 'flee' ? -1.0 : stalk ? -0.85 * hesitate : state === 'howl' ? 0.1 : 0;
+    this.ears.rotation.z = this.sEars.update(earsT, dt);
+    // rearing up on its hind legs (held anticipation before the bolt)
+    const rearAmt = this.sRear.update(rear ? 1 : 0, dt);
     if (!this.wasVisible) {
       // appearing: start in pose, no blend from a stale one
       this.sSwing.snap(walking ? 0.38 : 0);
@@ -158,8 +221,15 @@ export class WolfPuppet {
     l[1].rotation.z = -swing * (1 - sit) + -0.25 * sit;
     l[2].rotation.z = -swing * (1 - sit) + -1.1 * sit;
     l[3].rotation.z = swing * (1 - sit) + -1.0 * sit;
-    this.body.position.y = this.sBodyY.update(bodyYT, dt);
-    this.body.rotation.z = this.sBodyRot.update(bodyRotT, dt);
+    if (rearAmt > 0.01) {
+      // front legs up and forward, hind legs braced
+      l[0].rotation.z += 0.9 * rearAmt;
+      l[1].rotation.z += 0.75 * rearAmt;
+      l[2].rotation.z -= 0.35 * rearAmt;
+      l[3].rotation.z -= 0.3 * rearAmt;
+    }
+    this.body.position.y = this.sBodyY.update(bodyYT, dt) + 0.03 * rearAmt;
+    this.body.rotation.z = this.sBodyRot.update(bodyRotT, dt) + 0.5 * rearAmt;
     this.head.rotation.z = this.sHead.update(headT, dt);
     this.tail.rotation.z = this.sTail.update(tailT, dt);
   }

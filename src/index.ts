@@ -37,7 +37,7 @@ World.create($('scene-container') as HTMLDivElement, projectOptions)
 async function start(world: World): Promise<void> {
   const params = new URLSearchParams(location.search);
   const tester = params.has('tester');
-  const app = new App(world, { tester });
+  const app = new App(world, { tester, capture: params.has('capture') });
   $('build').textContent = BUILD + (tester ? ' · tester mode' : '');
   bindApp(app);
   world
@@ -53,6 +53,7 @@ async function start(world: World): Promise<void> {
   const s = app.settings;
   $<HTMLInputElement>('opt-gentle').checked = s.gentle;
   $<HTMLInputElement>('opt-captions').checked = s.captions;
+  $<HTMLInputElement>('opt-full').checked = s.fullCaptions;
   $<HTMLInputElement>('opt-motion').checked = s.reduceMotion;
   $<HTMLInputElement>('opt-contrast').checked = s.highContrast;
   $<HTMLInputElement>('opt-dim').value = String(Math.round(s.dimLevel * 100));
@@ -61,6 +62,7 @@ async function start(world: World): Promise<void> {
     app.updateSettings({
       gentle: $<HTMLInputElement>('opt-gentle').checked,
       captions: $<HTMLInputElement>('opt-captions').checked,
+      fullCaptions: $<HTMLInputElement>('opt-full').checked,
       reduceMotion: $<HTMLInputElement>('opt-motion').checked,
       highContrast: $<HTMLInputElement>('opt-contrast').checked,
       dimLevel: Number($<HTMLInputElement>('opt-dim').value) / 100,
@@ -77,7 +79,7 @@ async function start(world: World): Promise<void> {
     } catch (err) {
       console.warn('[lanternlight] could not start XR', err);
       notice.textContent =
-        "The show couldn't start. Check that the headset's browser allows immersive mode, then press Begin again.";
+        "The show couldn't start. Check that the headset's browser allows immersive mode, then light the lantern again.";
     }
   };
   begin.addEventListener('click', startXR);
@@ -93,13 +95,13 @@ async function start(world: World): Promise<void> {
   const vr = !ar && (await supports(SessionMode.ImmersiveVR));
   if (ar) {
     begin.disabled = false;
-    begin.textContent = 'Begin';
+    begin.textContent = 'Light the lantern';
   } else if (vr) {
     // No passthrough here (older headset or browser): play in a virtual theatre.
     vrFallback = true;
     begin.disabled = false;
-    begin.textContent = 'Begin (virtual theatre)';
-    notice.textContent = 'Mixed reality is not available on this device, so the show runs in a cosy virtual theatre.';
+    begin.textContent = 'Light the lantern';
+    notice.textContent = 'This headset can’t show your room, so the show plays in a little virtual theatre.';
   } else {
     begin.textContent = 'Open on Meta Quest';
     notice.textContent = 'Lanternlight is a mixed reality experience. Open this page in the Meta Quest Browser.';

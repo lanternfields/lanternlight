@@ -53,7 +53,7 @@ try {
   }));
   check('landing renders', landing.title === 'Lanternlight', JSON.stringify(landing));
   check('tester mode on', /tester mode/.test(landing.build ?? ''), landing.build);
-  check('Begin enabled (AR supported via emulator)', landing.disabled === false && landing.begin === 'Begin');
+  check('Begin enabled (AR supported via emulator)', landing.disabled === false && landing.begin === 'Light the lantern');
   await page.screenshot({ path: path.join(OUT, 'live-landing.png') });
 
   await page.click('#begin');

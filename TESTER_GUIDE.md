@@ -7,7 +7,9 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 
 1. **Which headset do you have?** Please tell us, because the models behave differently:
    - **Quest 3 or 3S**: white, the newest. Your room looks **in colour** through the headset.
-   - **Quest 2**: white. Your room looks **black-and-white** through the headset. That's fine; the show works the same.
+   - **Quest 2**: white. Your room looks **black-and-white** through the headset. That's expected:
+     the lantern's warm light and the shadows are drawn by the app, so they still show in colour
+     on your grey wall, and the show works the same.
    - **Original Quest (2019)**: **black**. It can't show your room, so Lanternlight runs in a
      dim "virtual theatre" instead. That's expected; please still try everything.
 2. **Run Space Setup first** (it lets the app find your walls): in *Settings*, look for
@@ -23,9 +25,10 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 1. Put the controllers down. Open the **Browser** in the headset.
 2. Go to **https://lanternfields.github.io/lanternlight/?tester=1**
    (type it exactly, including `?tester=1` at the end).
-3. Press **Begin**. If the headset asks for permission to use your room / hand tracking /
+3. Press **Light the lantern**. If the headset asks for permission to use your room / hand tracking /
    spatial data, choose **Allow**.
-   - On an **original Quest** the button says **Begin (virtual theatre)**. That's expected.
+   - On an **original Quest** a note under the button says the show plays in a little virtual
+     theatre. That's expected.
    - If it says **Open on Meta Quest**, the page isn't open in the headset's own Browser.
 4. A small **Tester** card floats beside the lantern. It shows FPS, which headset and mode you
    are on, and a checklist. If you can, keep it in a screenshot or recording now and then.

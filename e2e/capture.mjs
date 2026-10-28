@@ -20,6 +20,7 @@ const room = process.argv[2] ?? 'music_room';
 const yaw = Number(process.argv[3] ?? 90);
 const name = process.argv[4] ?? 'capture';
 const maxSeconds = Number(process.argv[5] ?? 240);
+const choreo = process.argv[6] ?? 'coreLoop';
 const FPS = 60;
 const W = Number(process.env.CAPTURE_W ?? 1920);
 const H = Number(process.env.CAPTURE_H ?? 1080);
@@ -43,7 +44,7 @@ const grab = async () => {
   await page.screenshot({ path: file, type: 'jpeg', quality: 92 });
 };
 
-await page.goto(BASE, { waitUntil: 'load', timeout: 120000 });
+await page.goto(BASE + '?capture=1', { waitUntil: 'load', timeout: 120000 }); // recording look (emulator only)
 await page.waitForFunction(() => !!window.__lantern && !!window.IWER_DEVICE, null, { timeout: 120000 });
 await installPoses(page);
 await setRoom(page, room);
@@ -89,10 +90,10 @@ await page.evaluate(() => {
 });
 await page.addScriptTag({ path: path.join(here, 'capture', 'director.js') });
 await page.waitForTimeout(400);
-await page.evaluate(() => {
-  window.__director.start('coreLoop');
+await page.evaluate((c) => {
+  window.__director.start(c);
   window.__vclock.enable();
-});
+}, choreo);
 
 const t0 = Date.now();
 let last = { done: false, t: 0 };

@@ -15,8 +15,10 @@ export interface Settings {
   highContrast: boolean;
   /** Fewer particles, no sway. */
   reduceMotion: boolean;
-  /** Show short captions. */
+  /** Show the storyteller's lines and the short hand prompts. */
   captions: boolean;
+  /** Full captions: prompts also explain what to do, at length (accessibility). */
+  fullCaptions: boolean;
   /** Master volume 0..1. */
   volume: number;
   /** Dominant hand. */
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   highContrast: false,
   reduceMotion: false,
   captions: true,
+  fullCaptions: false,
   volume: 0.8,
   dominant: 'right',
 };
@@ -60,6 +63,7 @@ export function loadSettings(store?: KeyValueStore | null): Settings {
     if (typeof parsed.highContrast === 'boolean') out.highContrast = parsed.highContrast;
     if (typeof parsed.reduceMotion === 'boolean') out.reduceMotion = parsed.reduceMotion;
     if (typeof parsed.captions === 'boolean') out.captions = parsed.captions;
+    if (typeof parsed.fullCaptions === 'boolean') out.fullCaptions = parsed.fullCaptions;
     if (typeof parsed.volume === 'number') out.volume = Math.min(1, Math.max(0, parsed.volume));
     if (parsed.dominant === 'left' || parsed.dominant === 'right') out.dominant = parsed.dominant;
   } catch {

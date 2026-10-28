@@ -220,7 +220,8 @@
     const fz = -Math.cos(yaw);
     const rx = -fz;
     const rz = fx;
-    return [h.x + fx * 0.26 + rx * 0.2, h.y - 0.55, h.z + fz * 0.26 + rz * 0.2];
+    // low and close: out of the shot (in a headset your hand would simply be in your lap)
+    return [h.x + fx * 0.16 + rx * 0.22, h.y - 0.85, h.z + fz * 0.16 + rz * 0.22];
   };
 
   // --------------------------------------------------------- hand control
@@ -379,11 +380,18 @@
     // ---- The Hungry Crocodile
     yield* chooseTale('croc');
     mark('croc');
-    // the hand becomes a crocodile: fingers together, thumb dropped, side-on
+    // hand down while the title card plays, then it becomes a crocodile:
+    // fingers together, thumb dropped, side-on
+    setPose('relaxed', 0.5);
+    rest();
+    yield* until(() => !S().view.title.id, 4);
+    yield* wait(0.2);
     setPose('crocOpen', 0.6);
     orient(10, -90, 90);
-    shadowTo(-0.02, 0.0, { feature: 'mouth', size: 1.1 });
-    yield* wait(2.6); // the title card
+    ctl.tau = 0.3;
+    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    yield* wait(1.6);
+    ctl.tau = 0.16;
     let t0 = time;
     while (S().scene === 'croc' && S().stats.eaten < 7 && time - t0 < 45) {
       const ff = S().view.fireflies.find((f) => f.alive && f.glow > 0.5);
@@ -431,22 +439,7 @@
     // ---- The Moon Wolf
     yield* chooseTale('wolf');
     mark('wolf');
-    rest();
-    yield* until(() => !S().view.title.id, 4); // let the title card play
-    yield* wait(0.6);
-    setPose('open', 0.5);
-    orient(60, 0, 0);
-    shadowTo(-0.05, 0.02, { size: 1 });
-    t0 = time;
-    while (S().scene === 'wolf' && !S().progress.completed.wolf && time - t0 < 80) {
-      const w = S().wolf;
-      const threat = (w.state === 'prowl' || w.state === 'sit' || w.state === 'cower') && w.x < 0.62;
-      ctl.tau = threat ? 0.32 : 0.25;
-      ctl.size = threat ? 1.75 : 1.0;
-      if (w.state === 'howl' || w.state === 'return') rest();
-      else shadowTo(-0.05, 0.02);
-      yield;
-    }
+    yield* wolfBeat();
     mark('wolf-done');
     rest();
     yield* until(() => S().scene === 'finale' || S().scene === 'menu', 20);
@@ -454,6 +447,148 @@
     yield* until(() => S().scene === 'menu', 20);
     yield* wait(2.5);
     mark('end');
+  }
+
+  /**
+   * The Moon Wolf as one beat (staged for the camera): the hand waits out the
+   * title card, rises above and right of the wolf at normal size, then grows
+   * smoothly as the wolf stalks into the light - past the threshold on the
+   * first try - and drops out of the shot as the wolf bolts.
+   */
+  function* wolfBeat() {
+    rest();
+    setPose('relaxed', 0.4);
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(0.9);
+    setPose('open', 0.6);
+    orient(60, 0, 0);
+    ctl.tau = 0.4;
+    ctl.size = 1;
+    // above and right of where the wolf will stop, so its shape stays clear
+    shadowTo(0.42, 0.27, { size: 1 });
+    yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 10);
+    // grow: a slow, continuous swell (the wolf hesitates as it builds)
+    ctl.tau = 0.5;
+    shadowTo(0.42, 0.27, { size: 1.62 });
+    yield* until(() => S().wolf.state === 'rear' || S().wolf.state === 'flee', 8);
+    mark('wolf-scared');
+    yield* wait(0.45);
+    ctl.tau = 0.35;
+    rest();
+    setPose('relaxed', 0.6);
+    yield* until(() => S().wolf.state === 'howl', 10);
+    mark('wolf-howl');
+    yield* until(() => S().scene !== 'wolf', 16);
+    ctl.size = 1;
+    ctl.tau = 0.16;
+    mark('wolf-done');
+  }
+
+  /** Just the wolf tale (its own clip). */
+  function* wolfClip() {
+    rest();
+    setPose('relaxed', 0.1);
+    yield* wait(0.3);
+    goto('wolf');
+    mark('wolf');
+    yield* wolfBeat();
+    yield* wait(0.8);
+    mark('end');
+  }
+
+  /** The prologue and the crocodile's opening (text and staging check). */
+  function* openingClip() {
+    mark('start');
+    setPose('relaxed', 0.1);
+    rest();
+    yield* until(() => S().beat === 'wave', 20);
+    yield* wait(2.0);
+    mark('raise');
+    setPose('open', 0.8);
+    orient(60, 0, 0);
+    ctl.tau = 0.35;
+    shadowTo(0.04, 0.02);
+    yield* wait(1.6);
+    ctl.tau = 0.16;
+    for (let i = 0; i < 2; i++) {
+      orient(60, 0, 16);
+      yield* wait(0.38);
+      orient(60, 0, -12);
+      yield* wait(0.38);
+    }
+    orient(60, 0, 0);
+    yield* until(() => S().beat === 'rabbitHint', 15);
+    yield* wait(1.6);
+    setPose('peace', 0.5);
+    yield* until(() => S().stats.rabbitBirths > 0, 20);
+    yield* wait(1.4);
+    setPose('relaxed', 0.6);
+    rest();
+    yield* chooseTale('croc');
+    mark('croc');
+    setPose('relaxed', 0.5);
+    rest();
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(0.2);
+    setPose('crocOpen', 0.6);
+    orient(10, -90, 90);
+    ctl.tau = 0.3;
+    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    yield* wait(7.5);
+    mark('end');
+  }
+
+  /** Stills of each text treatment (STORY_TEXT.md). */
+  function* textStills() {
+    goto('intro');
+    setPose('relaxed', 0.1);
+    rest();
+    yield* until(() => S().beat === 'wave', 20);
+    yield* wait(1.2);
+    yield* shoot('text-line-lit');
+    yield* until(() => S().view.text.promptAlpha > 0.99, 12);
+    yield* wait(0.3);
+    yield* shoot('text-prompt-raise');
+    setPose('open', 0.8);
+    orient(60, 0, 0);
+    ctl.tau = 0.35;
+    shadowTo(0.04, 0.02);
+    yield* until(() => S().view.text.line === 'There you are.' && S().view.text.lineAlpha > 0.99, 8);
+    yield* shoot('text-line-found');
+    ctl.tau = 0.16;
+    yield* until(() => S().beat === 'rabbitHint', 15);
+    yield* wait(1.4);
+    setPose('peace', 0.5);
+    yield* until(() => S().stats.rabbitBirths > 0, 20);
+    yield* until(() => S().view.text.line.startsWith('This is Pip') && S().view.text.lineAlpha > 0.99, 8);
+    yield* wait(0.6);
+    yield* shoot('text-line-pip');
+    setPose('relaxed', 0.6);
+    rest();
+    yield* until(() => S().scene === 'menu' && S().view.text.line === 'Choose a story.' && S().view.text.lineAlpha > 0.99, 15);
+    yield* shoot('text-line-menu');
+    goto('croc');
+    yield* wait(1.3);
+    yield* shoot('text-title-croc');
+    setPose('crocOpen', 0.6);
+    orient(10, -90, 90);
+    yield* until(() => !S().view.title.id, 5);
+    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    yield* until(() => S().view.text.lineAlpha > 0.99, 5);
+    yield* wait(0.8);
+    yield* shoot('text-line-croc');
+    setPose('relaxed', 0.5);
+    rest();
+    goto('wolf');
+    yield* wait(1.3);
+    yield* shoot('text-title-wolf');
+    yield* until(() => !S().view.title.id, 5);
+    yield* until(() => S().view.text.lineAlpha > 0.99, 5);
+    yield* wait(0.6);
+    yield* shoot('text-line-wolf');
+    goto('finale');
+    yield* until(() => S().view.text.line === 'Goodnight.' && S().view.text.lineAlpha > 0.99, 20);
+    yield* shoot('text-line-goodnight');
   }
 
   // ------------------------------------------------ stills for the style audit
@@ -492,12 +627,22 @@
     yield* wait(2.4);
     yield* shoot('menu');
     // The Hungry Crocodile: the hand is already a crocodile when it starts
-    setPose('crocOpen', 0.4);
-    orient(10, -90, 90);
-    shadowTo(-0.02, 0.0, { feature: 'mouth', size: 1.1 });
+    setPose('relaxed', 0.4);
+    rest();
     yield* wait(0.8);
     goto('croc');
-    yield* tale3('croc', 'croc');
+    yield* wait(0.5);
+    yield* shoot('croc-0.5');
+    yield* wait(1.0);
+    yield* shoot('croc-1.5');
+    // the title card is leaving: the hand becomes a crocodile
+    setPose('crocOpen', 0.6);
+    orient(10, -90, 90);
+    ctl.tau = 0.3;
+    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    yield* wait(1.5);
+    yield* shoot('croc-3.0');
+    ctl.tau = 0.16;
     const ff = () => S().view.fireflies.find((f) => f.alive && f.glow > 0.5);
     yield* until(() => !!ff(), 6);
     const f = ff();
@@ -552,7 +697,7 @@
   window.__director = {
     marks,
     start(name = 'coreLoop') {
-      gen = { coreLoop, stills }[name]();
+      gen = { coreLoop, stills, wolfClip, openingClip, textStills }[name]();
       gen.next(0);
       done = false;
       time = 0;

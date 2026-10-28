@@ -98,6 +98,10 @@ export interface StageView {
     squash: number;
     swimming: boolean;
     peering: boolean;
+    /** Drawing scale (1 = normal; the wolf tale is staged bigger). */
+    scale: number;
+    /** 0..1 trembling (secondary motion while the wolf stalks). */
+    tremble: number;
   };
   fireflies: FireflyView[];
   icons: IconView[];
@@ -130,7 +134,24 @@ export interface StageView {
   /** The burrow (home) marker for the bridge tale. */
   burrow: { visible: number; s: number; t: number };
   /** The Moon Wolf. */
-  wolf: { visible: number; x: number; y: number; dir: number; state: WolfState; crouch: number; phase: number; fear: number };
+  wolf: {
+    visible: number;
+    x: number;
+    y: number;
+    dir: number;
+    state: WolfState;
+    crouch: number;
+    phase: number;
+    fear: number;
+    /** 0..1 it hesitates as your shadow grows. */
+    hesitate: number;
+    /** Seconds in its current state (pose timing). */
+    stateTime: number;
+    /** Signed speed (stretch while bolting). */
+    vx: number;
+    /** Drawing scale. */
+    scale: number;
+  };
   /** The moon (a disc of light). */
   moon: { visible: number; s: number; t: number; r: number; glow: number };
   /** How big your shadow is vs. how big it needs to be (wolf tale HUD hint), 0..1+. */
@@ -139,11 +160,82 @@ export interface StageView {
   title: { id: TaleId | ''; t: number };
   /** 0..1 how much of the scene's set is shown (it fades in as the title card leaves). */
   set: number;
+  /** On-stage words (STORY_TEXT.md): one storyteller line at a time, and a hand prompt. */
+  text: TextView;
+  /** 0..1 a flare of lamplight when the wolf is scared off (decays). */
+  flare: number;
+  /** 0..1 the wall trembles with the scare (decays fast). */
+  tremble: number;
+  /** 0..1 the ring around the moon that fills as your shadow grows (wolf tale). */
+  courageRing: number;
 }
+
+export interface TextView {
+  /** The storyteller line on the ribbon banner ('' = none). */
+  line: string;
+  /** 0..1 banner presence (unfurls in, fades out). */
+  lineAlpha: number;
+  /** Increments for every new line (the renderer redraws then). */
+  lineId: number;
+  /** Hand prompt in a few words ('' = none), shown only when the player stalls. */
+  prompt: string;
+  /** The longer, explanatory prompt for the full-captions setting. */
+  promptFull: string;
+  /** 0..1 prompt presence. */
+  promptAlpha: number;
+  /** Small-caps title above the title card's emblem ('' = none). */
+  title: string;
+}
+
+/** The storyteller's lines and the prompts (verbatim from STORY_TEXT.md). */
+export const LINES = {
+  lit: 'Every wall is a stage, once the lantern is lit.',
+  found: 'There you are.',
+  pip: 'This is Pip. Pip is small, and the night is very large.',
+  choose: 'Choose a story.',
+  crocOpen1: 'Down by the river, the fireflies are dancing\u2026',
+  crocOpen2: '\u2026and someone is hungry.',
+  crocClose: 'Full at last, the crocodile drifts off to sleep.',
+  bridgeOpen: 'Pip wants to go home, but the bridge is broken.',
+  bridgePlank: 'A little help from the river.',
+  bridgeClose: 'Home by moonlight. Pip will tell everyone about you.',
+  wolfOpen: 'Something is moving in the tall grass\u2026',
+  wolfTwist: 'But the wolf only wanted to sing to the moon.',
+  wolfClose: 'Some shadows are only lonely.',
+  sleepy: 'The lantern is getting sleepy.',
+  thanks: 'Thank you for lending us your hands.',
+  goodnight: 'Goodnight.',
+} as const;
+
+export const PROMPTS = {
+  raise: ['Raise a hand into the light', 'Raise one hand between the lantern and the wall'],
+  rabbit: ['Two fingers up', 'Hold up two fingers, like rabbit ears'],
+  menu: ['', 'Rest your shadow on a lantern to open its story'],
+  snap: ['Open\u2026 and snap', 'Open your hand like jaws, then snap it shut on a firefly'],
+  bridge: ['Lay your hand flat. Be the bridge.', 'Hold your hand flat and sideways so its shadow spans the river'],
+  closer: ['Bring it closer to you', 'Bring your hand back toward you: its shadow grows bigger'],
+  big: ['Make your shadow big', 'Bring your hand back toward you, or raise both hands, to make your shadow big'],
+} as const;
+
+export const TITLES: Record<TaleId, string> = {
+  croc: 'I \u00b7 The Hungry River',
+  bridge: 'II \u00b7 The Broken Bridge',
+  wolf: 'III \u00b7 The Moon Wolf',
+};
+
+/** A storyteller line stays up this long (STORY_TEXT.md: ~3.5 s, or 1 s per 6 words). */
+export function lineDuration(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.max(3.5, words / 6);
+}
+/** Prompts: the pictogram (ghost hint) after this many seconds of stalling... */
+export const PROMPT_PICTOGRAM_AFTER = 4;
+/** ...and the words only after this many. */
+export const PROMPT_WORDS_AFTER = 8;
 
 /** Title card timing (STYLE_GUIDE 3/4): in, hold, out (seconds). */
 export const TITLE_IN = 0.4;
-export const TITLE_HOLD = 1.4;
+export const TITLE_HOLD = 2.0;
 export const TITLE_OUT = 0.5;
 export const TITLE_DURATION = TITLE_IN + TITLE_HOLD + TITLE_OUT;
 /** Scene transitions: fade out, then in (seconds). */
@@ -203,12 +295,12 @@ function createView(): StageView {
     flame: 0,
     fade: 0,
     ghost: { visible: 0, pose: 'open', s: 0, t: 0, scale: 1, phase: 0 },
-    rabbit: { visible: 0, x: 0, y: GROUND_T, dir: 1, hopping: false, squash: 1, swimming: false, peering: false },
+    rabbit: { visible: 0, x: 0, y: GROUND_T, dir: 1, hopping: false, squash: 1, swimming: false, peering: false, scale: 1, tremble: 0 },
     fireflies,
     icons: [
-      { id: 'croc', s: -0.42, t: 0.12, r: 0.11, fill: 0, visible: 0, completed: false, label: 'The Hungry Crocodile', armed: false },
-      { id: 'bridge', s: 0.0, t: 0.18, r: 0.11, fill: 0, visible: 0, completed: false, label: "Rabbit's Bridge", armed: false },
-      { id: 'wolf', s: 0.42, t: 0.12, r: 0.11, fill: 0, visible: 0, completed: false, label: 'The Moon Wolf', armed: false },
+      { id: 'croc', s: -0.42, t: 0.05, r: 0.11, fill: 0, visible: 0, completed: false, label: 'The Hungry Crocodile', armed: false },
+      { id: 'bridge', s: 0.0, t: 0.1, r: 0.11, fill: 0, visible: 0, completed: false, label: "Rabbit's Bridge", armed: false },
+      { id: 'wolf', s: 0.42, t: 0.05, r: 0.11, fill: 0, visible: 0, completed: false, label: 'The Moon Wolf', armed: false },
     ],
     scenery,
     sceneryCount: 0,
@@ -218,11 +310,15 @@ function createView(): StageView {
     caption: '',
     progress: 0,
     burrow: { visible: 0, s: 0.62, t: GROUND_T },
-    wolf: { visible: 0, x: 1, y: GROUND_T, dir: -1, state: 'away', crouch: 0, phase: 0, fear: 0 },
+    wolf: { visible: 0, x: 1, y: GROUND_T, dir: -1, state: 'away', crouch: 0, phase: 0, fear: 0, hesitate: 0, stateTime: 0, vx: 0, scale: 1 },
     moon: { visible: 0, s: 0.46, t: 0.3, r: 0.075, glow: 0 },
     courage: 0,
     title: { id: '', t: 0 },
     set: 1,
+    text: { line: '', lineAlpha: 0, lineId: 0, prompt: '', promptFull: '', promptAlpha: 0, title: '' },
+    flare: 0,
+    tremble: 0,
+    courageRing: 0,
   };
 }
 
@@ -292,6 +388,61 @@ export class Story {
     this.enter('intro');
   }
 
+  // ---------------------------------------------------------- narration
+  private readonly lineQueue: { text: string; hold: boolean }[] = [];
+  private lineT = 0;
+  private lineDur = 3.5;
+  private lineHold = false;
+  private promptWant = '';
+  private promptWantFull = '';
+
+  /** Queues a storyteller line (one at a time; `hold` keeps it up until the scene changes). */
+  say(text: string, hold = false): void {
+    this.lineQueue.push({ text, hold });
+  }
+
+  /** Asks for a hand prompt this frame ('' = none). Shown only while asked for. */
+  private ask(prompt: readonly [string, string] | null): void {
+    this.promptWant = prompt ? prompt[0] : '';
+    this.promptWantFull = prompt ? prompt[1] : '';
+  }
+
+  private updateNarration(dt: number): void {
+    const tv = this.view.text;
+    tv.title = this.view.title.id ? TITLES[this.view.title.id] : '';
+    if (tv.line) {
+      this.lineT += dt;
+      const leaving = (!this.lineHold && this.lineT > this.lineDur) || (this.lineHold && this.lineQueue.length > 0);
+      if (leaving) {
+        tv.lineAlpha = Math.max(0, tv.lineAlpha - dt / 0.4);
+        if (tv.lineAlpha <= 0) tv.line = '';
+      } else tv.lineAlpha = Math.min(1, tv.lineAlpha + dt / 0.4);
+    }
+    // a new line waits for the title card and for the previous line to leave
+    if (!tv.line && this.lineQueue.length > 0 && !this.view.title.id) {
+      const next = this.lineQueue.shift()!;
+      tv.line = next.text;
+      tv.lineId++;
+      tv.lineAlpha = 0;
+      this.lineT = 0;
+      this.lineHold = next.hold;
+      this.lineDur = lineDuration(next.text);
+    }
+    // prompts: cross-fade when the words change, dissolve when no longer asked
+    const want = this.promptWant;
+    if (tv.prompt !== want || tv.promptFull !== this.promptWantFull) {
+      tv.promptAlpha = Math.max(0, tv.promptAlpha - dt / 0.3);
+      if (tv.promptAlpha <= 0) {
+        tv.prompt = want;
+        tv.promptFull = this.promptWantFull;
+      }
+    } else if (want || this.promptWantFull) tv.promptAlpha = Math.min(1, tv.promptAlpha + dt / 0.4);
+    this.view.caption = tv.line;
+  }
+
+  /** The tale's opening lines have been queued (after its title card). */
+  private saidOpen = false;
+
   private emit(type: SoundEvent, s = 0, t = 0, value = 0): void {
     this.events.push({ type, s, t, value });
   }
@@ -328,6 +479,16 @@ export class Story {
     const tale = scene === 'croc' || scene === 'bridge' || scene === 'wolf';
     this.view.title.id = tale ? scene : '';
     this.view.title.t = 0;
+    this.lineQueue.length = 0;
+    if (this.lineHold) this.lineHold = false;
+    if (tale) this.lineDur = 0; // the previous scene's line leaves now
+    this.ask(null);
+    this.view.rabbit.scale = 1;
+    this.view.rabbit.tremble = 0;
+    this.view.wolf.scale = 1;
+    this.view.courageRing = 0;
+    this.saidOpen = false;
+    if (scene === 'menu') this.say(LINES.choose);
     if (tale) this.emit('title', 0, 0, scene === 'croc' ? 0 : scene === 'bridge' ? 1 : 2);
     this.view.set = tale ? 0 : 1;
     this.view.croc.actor = -1;
@@ -360,14 +521,21 @@ export class Story {
         this.wolf.state = 'away';
         this.wolf.x = 1.05;
         this.wolf.y = GROUND_T;
-        this.rabbit.place(-0.52, GROUND_T, 1);
+        this.wolf.stopX = 0.12;
+        this.wolf.singX = 0.18;
+        // in the middle third of the light, the moon clear of where the hand goes
+        this.rabbit.place(-0.3, GROUND_T, 1);
         this.rabbit.restTime = 1e9; // the rabbit sits tight by its burrow
         this.view.burrow.visible = 1;
-        this.view.burrow.s = -0.64;
+        this.view.burrow.s = -0.47;
         this.view.burrow.t = GROUND_T;
+        this.view.moon.s = -0.42;
+        this.view.moon.t = 0.27;
         this.setBeat('moonrise');
         break;
       case 'finale':
+        this.view.moon.s = 0.46;
+        this.view.moon.t = 0.3;
         this.rabbit.place(-0.5, GROUND_T, 1);
         this.rabbit.restTime = 0.5;
         this.wolf.state = 'howl';
@@ -508,8 +676,18 @@ export class Story {
         this.syncWolfView();
         this.syncRabbitView();
         v.sparkle = approach(v.sparkle, 0, 1.2, dt);
+        this.ask(null);
+        this.updateNarration(dt);
         return;
       }
+    }
+    if (!this.saidOpen) {
+      this.saidOpen = true;
+      if (this.scene === 'croc') {
+        this.say(LINES.crocOpen1);
+        this.say(LINES.crocOpen2);
+      } else if (this.scene === 'bridge') this.say(LINES.bridgeOpen);
+      else if (this.scene === 'wolf') this.say(LINES.wolfOpen);
     }
     switch (this.scene) {
       case 'intro':
@@ -534,6 +712,9 @@ export class Story {
     this.syncWolfView();
     this.syncRabbitView();
     v.sparkle = approach(v.sparkle, 0, 1.2, dt);
+    v.flare = approach(v.flare, 0, 2.6, dt);
+    v.tremble = Math.max(0, v.tremble - dt / 0.35);
+    this.updateNarration(dt);
   }
 
   /**
@@ -582,6 +763,9 @@ export class Story {
     wv.crouch = w.crouch;
     wv.phase = w.phase;
     wv.fear = w.fear;
+    wv.hesitate = w.hesitate;
+    wv.stateTime = w.stateTime;
+    wv.vx = w.vx;
     wv.visible = w.state === 'away' ? 0 : 1;
   }
 
@@ -652,7 +836,10 @@ export class Story {
         if (this.beatTime > 0.8 && v.flame === 0) this.emit('ignite');
         v.flame = clamp((this.beatTime - 0.8) / 0.8, 0, 1);
         v.light = clamp((this.beatTime - 1.2) / 1.4, 0, 1);
-        if (this.beatTime > 2.6) this.setBeat('wave');
+        if (this.beatTime > 2.6) {
+          this.say(LINES.lit);
+          this.setBeat('wave');
+        }
         break;
       case 'wave':
         v.light = 1;
@@ -663,9 +850,12 @@ export class Story {
         v.ghost.t = 0.02;
         v.ghost.scale = 1;
         v.ghost.visible = approach(v.ghost.visible, actor ? 0 : 0.55, 3, dt);
+        this.ask(!actor && this.beatTime > PROMPT_WORDS_AFTER ? PROMPTS.raise : null);
         if (actor && actor.presentTime > 0.45) {
           this.emit('shadowFound', actor.centroidS, actor.centroidT);
           v.sparkle = 1;
+          this.say(LINES.found);
+          this.ask(null);
           this.setBeat('play');
         } else if (this.beatTime > (this.settings.gentle ? 12 : 20)) {
           // Assist: no hand in the light yet (tracking trouble, hands resting
@@ -686,6 +876,7 @@ export class Story {
         v.ghost.t = target ? clamp(target.centroidT, -0.2, 0.25) : 0.05;
         v.ghost.scale = 0.9;
         v.ghost.visible = approach(v.ghost.visible, 0.5, 2, dt);
+        this.ask(!seen && this.beatTime > PROMPT_WORDS_AFTER ? PROMPTS.rabbit : null);
         // Assist: after a while the rabbit arrives anyway (no fail state).
         const assistAfter = this.settings.gentle ? 14 : 24;
         if (seen || this.beatTime > assistAfter) {
@@ -698,6 +889,8 @@ export class Story {
           this.stats.rabbitBirths++;
           this.emit('rabbitBorn', s, t);
           v.sparkle = 1;
+          this.ask(null);
+          this.say(LINES.pip);
           this.discover('rabbit');
           this.setBeat('born');
         }
@@ -707,7 +900,8 @@ export class Story {
         v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
         v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
         this.stepRabbit(dt, true);
-        if (((this.beatTime > 2.6 && this.rabbit.state === 'idle') || this.beatTime > 8) && !this.pendingScene) {
+        // Pip's introduction reads in the prologue before the menu
+        if (((this.beatTime > 4.6 && this.rabbit.state === 'idle') || this.beatTime > 9) && !this.pendingScene) {
           this.progress.visits++;
           this.requestScene('menu');
         }
@@ -779,10 +973,10 @@ export class Story {
         icon.fill = Math.max(0, icon.fill - dt * 1.2);
       }
     }
-    // Gentle caption if nobody has touched anything for a while.
+    // The script has no words here; full captions explain after a long pause.
     let anyFill = false;
     for (const i of v.icons) if (i.fill > 0) anyFill = true;
-    v.caption = !anyFill && this.sceneTime > 6 ? 'Touch a lantern with your shadow' : '';
+    this.ask(!anyFill && this.sceneTime > PROMPT_WORDS_AFTER + 2 ? PROMPTS.menu : null);
   }
 
   // ------------------------------------------------------------ crocodile
@@ -792,8 +986,8 @@ export class Story {
     if (!f) return;
     // inside the lamplight, where the crocodile can be seen catching them
     const side = this.rng() < 0.5 ? -1 : 1;
-    f.x = side * (0.26 + this.rng() * 0.14);
-    f.y = -0.1 + this.rng() * 0.32;
+    f.x = side * (0.24 + this.rng() * 0.14);
+    f.y = -0.12 + this.rng() * 0.22;
     f.alive = true;
     f.glow = 0;
     f.eaten = 0;
@@ -822,13 +1016,14 @@ export class Story {
       this.idleNoHand += dt;
     }
     this.sinceChomp += dt;
-    const showGhost = this.beat === 'teach' || this.idleNoHand > 4 || this.sinceChomp > 9;
+    const stall = Math.max(this.idleNoHand, this.sinceChomp);
+    const showGhost = (this.beat === 'teach' && this.beatTime > 1.5) || stall > PROMPT_PICTOGRAM_AFTER;
     v.ghost.pose = 'mouth';
     v.ghost.s = 0.3;
     v.ghost.t = 0.12;
     v.ghost.scale = 0.85;
     v.ghost.visible = approach(v.ghost.visible, showGhost && !actor ? 0.5 : showGhost ? 0.25 : 0, 2.5, dt);
-    v.caption = this.beat === 'teach' && this.beatTime > 1.5 ? 'Open and close your hand' : '';
+    this.ask((this.beat === 'teach' || this.beat === 'feed') && stall > PROMPT_WORDS_AFTER ? PROMPTS.snap : null);
 
     if (this.beat === 'teach') {
       if (this.beatTime > 1.2 && this.beatTime - dt <= 1.2) {
@@ -868,8 +1063,9 @@ export class Story {
           }
         }
         // fireflies stay inside the lamplight
-        f.x = clamp(f.x + vx * dt, -0.44, 0.44);
-        f.y = clamp(f.y + vy * dt, -0.2, 0.28);
+        // (kept low enough that the whole crocodile chasing them stays in the light)
+        f.x = clamp(f.x + vx * dt, -0.42, 0.42);
+        f.y = clamp(f.y + vy * dt, -0.18, 0.15);
       }
       // Chomp! A firefly is caught if it is anywhere along the open jaws
       // (recorded while the mouth was open) or near where the jaws met.
@@ -912,11 +1108,12 @@ export class Story {
         this.emit('taleComplete');
         v.sparkle = 1;
         this.progress.completed.croc = true;
+        this.ask(null);
+        this.say(LINES.crocClose);
       }
     } else if (this.beat === 'glow') {
       v.warmth = 1;
-      v.caption = 'A very happy crocodile';
-      if (this.beatTime > 3.5) {
+      if (this.beatTime > 4.6) {
         v.warmth = 0;
         this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
@@ -942,17 +1139,20 @@ export class Story {
       v.ghost.s = 0;
       v.ghost.t = GROUND_T + 0.02;
       v.ghost.scale = (2 * g + 0.12) / 0.5;
+      // the last, widest gap: the pictogram grows toward you (bring it closer)
+      if (this.round === 2) v.ghost.scale *= 1 + 0.18 * (0.5 + 0.5 * Math.sin(this.time * 2.2));
       v.ghost.visible = approach(v.ghost.visible, needHelp ? 0.45 : 0, 2.5, dt);
       if (needHelp) this.waitTime += dt;
+      this.ask(needHelp && this.waitTime > PROMPT_WORDS_AFTER - 2.5 ? (this.round === 2 ? PROMPTS.closer : PROMPTS.bridge) : null);
       if (!this.plank.active && !this.plank.done && this.waitTime > (this.settings.gentle ? 9 : 16)) {
         this.plank.active = true;
         this.plank.t = 0;
         this.plank.index = this.world.sceneryCount;
         this.stats.assists++;
+        this.say(LINES.bridgePlank);
         this.emit('whoosh', 0, GROUND_T);
       }
       if (this.plank.active) this.updatePlank(dt, g);
-      v.caption = needHelp && this.round === 0 ? 'Make a bridge with your hand' : needHelp && this.round === 2 ? 'Bring your hand back toward you to make it longer' : '';
       v.progress = (this.round + (r.x > 0 ? 0.5 : 0)) / this.rounds.length;
       if (r.state === 'home') {
         this.stats.crossings++;
@@ -963,12 +1163,13 @@ export class Story {
       }
     } else if (this.beat === 'celebrate') {
       v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
-      v.caption = '';
+      this.ask(null);
       if (this.beatTime > 1.6) {
         this.round++;
         if (this.round >= this.rounds.length) {
           this.progress.completed.bridge = true;
           this.emit('taleComplete');
+          this.say(LINES.bridgeClose);
           this.setBeat('end');
         } else {
           this.setupRound();
@@ -976,9 +1177,8 @@ export class Story {
         }
       }
     } else if (this.beat === 'end') {
-      v.caption = 'Home, safe and sound';
       v.warmth = approach(v.warmth, 0.6, 2, dt);
-      if (this.beatTime > 3) {
+      if (this.beatTime > 4.6) {
         v.warmth = 0;
         this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
@@ -986,9 +1186,15 @@ export class Story {
   }
 
   // ------------------------------------------------------------- moon wolf
-  private readonly wolfThresholds = [1.2, 1.3, 1.4];
+  // Staged big, in the middle of the light: the rabbit left by its burrow
+  // under the moon, the wolf stalking in from the right, your shadow above.
+  // One scare: as your shadow grows the wolf hesitates and the moon's ring
+  // fills; at the threshold it rears back, then bolts; the twist follows at once.
+  private readonly wolfThresholds = [1.25];
+  static readonly WOLF_SCALE = 1.55;
+  static readonly WOLF_RABBIT_SCALE = 1.45;
 
-  /** Size the shadow must reach this round (gentle mode & assist lower it). */
+  /** Size the shadow must reach (gentle mode & assist lower it). */
   wolfThreshold(): number {
     const base = this.wolfThresholds[Math.min(this.wolfRound, this.wolfThresholds.length - 1)];
     const gentle = this.settings.gentle ? 0.15 : 0;
@@ -1004,71 +1210,69 @@ export class Story {
     v.dim = 1;
     v.croc.visible = approach(v.croc.visible, 0, 6, dt);
     v.rabbit.visible = approach(v.rabbit.visible, 1, 5, dt);
+    v.rabbit.scale = Story.WOLF_RABBIT_SCALE;
+    v.wolf.scale = Story.WOLF_SCALE;
     v.moon.visible = approach(v.moon.visible, 1, 1.5, dt);
-    v.moon.glow = approach(v.moon.glow, this.beat === 'howl' ? 1 : 0.55, 1.5, dt);
+    v.moon.glow = approach(v.moon.glow, this.beat === 'howl' || this.beat === 'end' ? 1 : 0.5, 2, dt);
     this.stepRabbit(dt, false);
     const w = this.wolf;
     const big = this.bigness(model);
     const need = this.wolfThreshold();
     v.courage = clamp(big / need, 0, 1.2);
+    const stalking = w.state === 'prowl' || w.state === 'sit' || w.state === 'cower';
+    v.rabbit.tremble = approach(v.rabbit.tremble, this.beat === 'scare' && stalking && w.x < 0.5 ? 1 : 0, 4, dt);
+    v.courageRing = approach(v.courageRing, this.beat === 'scare' && w.state !== 'flee' && w.state !== 'away' ? 1 : 0, 4, dt);
     switch (this.beat) {
       case 'moonrise':
-        v.caption = this.beatTime > 1 ? 'A wolf is coming...' : '';
-        if (this.beatTime > 2.2) {
-          w.enter(0.92, 0.06);
+        if (this.beatTime > 1.2) {
+          w.enter(0.66, 0.1);
           this.setBeat('scare');
         }
         break;
       case 'scare': {
         this.roundTime += dt;
-        const ev = w.update(dt, big >= need);
+        const ev = w.update(dt, big >= need, v.courage);
         if (ev.growl) this.emit('growl', w.x, w.y);
         if (ev.whimper) this.emit('whimper', w.x, w.y);
-        if (ev.fled) {
-          this.emit('wolfFlee', w.x, w.y, this.wolfRound + 1);
-          v.sparkle = 0.6;
+        if (ev.reared) {
+          // the scare lands: a flare of light and a tremble of the wall
+          v.flare = 1;
+          v.tremble = 1;
+          this.emit('wolfFlee', w.x, w.y, 1);
         }
+        if (ev.fled) v.sparkle = 0.7;
         if (w.state === 'away') {
           this.awayTime += dt;
-          if (this.awayTime > 2.4) {
+          if (this.awayTime > 0.45) {
             this.awayTime = 0;
             this.wolfRound++;
-            this.roundTime = 0;
-            if (this.wolfRound >= this.wolfThresholds.length) {
-              w.befriend();
-              this.setBeat('howl');
-            } else {
-              w.enter(0.92, 0.06 + this.wolfRound * 0.015);
-            }
+            w.befriend();
+            this.say(LINES.wolfTwist);
+            this.setBeat('howl');
           }
         }
-        // Hints: a ghost of a big open hand, growing.
-        const struggling = this.roundTime > 6 || w.state === 'sit';
+        // the pictogram (a big open hand that grows) after a pause, words later
+        const scaredNow = w.state === 'rear' || w.state === 'flee' || w.state === 'away';
+        const stall = scaredNow ? 0 : this.roundTime;
         v.ghost.pose = 'open';
-        v.ghost.s = 0.05;
-        v.ghost.t = 0.02;
+        v.ghost.s = 0.3;
+        v.ghost.t = 0.1;
         v.ghost.scale = 1 + 0.5 * (0.5 + 0.5 * Math.sin(this.time * 1.6));
-        v.ghost.visible = approach(v.ghost.visible, struggling && w.state !== 'flee' ? 0.32 : 0, 2, dt);
-        v.caption =
-          w.state === 'cower' || w.state === 'flee'
-            ? ''
-            : struggling
-              ? this.wolfRound === 2
-                ? 'Raise both hands, or bring them back toward you'
-                : 'Make yourself big: bring your hand back toward you'
-              : '';
-        v.progress = (this.wolfRound + (w.state === 'flee' ? 1 : 0)) / this.wolfThresholds.length;
+        v.ghost.visible = approach(v.ghost.visible, stall > PROMPT_PICTOGRAM_AFTER + 1 ? 0.3 : 0, 2, dt);
+        this.ask(stall > PROMPT_WORDS_AFTER + 6 ? PROMPTS.closer : stall > PROMPT_WORDS_AFTER ? PROMPTS.big : null);
+        v.progress = scaredNow ? 1 : 0;
         break;
       }
       case 'howl': {
         const ev = w.update(dt, false);
         v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
+        this.ask(null);
         if (ev.howl) {
           this.emit('howl', w.x, w.y);
           v.sparkle = 1;
+          this.say(LINES.wolfClose);
         }
-        v.caption = w.state === 'howl' ? 'It only wanted to sing to the moon' : '';
-        if (w.state === 'howl' && this.beatTime > 7) {
+        if (w.state === 'howl' && w.stateTime > 4.8) {
           this.progress.completed.wolf = true;
           this.emit('taleComplete');
           this.setBeat('end');
@@ -1076,6 +1280,7 @@ export class Story {
         break;
       }
       case 'end':
+        w.update(dt, false);
         if (this.beatTime > 1.2) this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
         break;
     }
@@ -1118,9 +1323,13 @@ export class Story {
       this.emit('howl', this.wolf.x, GROUND_T);
       this.wolf.crouch = 0.9;
     }
-    v.caption = t > 4 ? 'The End. Come back tomorrow night' : 'Thank you for watching';
+    if (this.beatTime < dt * 1.5) {
+      this.say(LINES.sleepy);
+      this.say(LINES.thanks);
+      this.say(LINES.goodnight, true);
+    }
     v.sparkle = t > 1.5 && t < 6 ? 1 : v.sparkle;
-    if (t > 9) {
+    if (t > 15) {
       this.finaleSeen = true;
       v.warmth = 0;
       this.requestScene('menu');

@@ -29,7 +29,8 @@ Hands first (controllers become rod puppets), seated, about 10 minutes, no insta
 - Seated, with zero locomotion.
 - Every tale can be done with one hand, and left-handed mode is supported.
 - Gentle mode: bigger targets, faster dwell, stronger assists.
-- Captions, high-contrast stage, reduced motion, adjustable room dimming.
+- Captions (the storyteller's lines and short hand prompts) and full captions (prompts that
+  explain each step), high-contrast stage, reduced motion, adjustable room dimming.
 - Clean pause/resume when the headset comes off.
 - Lantern menu: tap and hold the lantern.
 
@@ -40,7 +41,7 @@ npm install
 npm run dev:emu        # Vite + IWER emulator at https://localhost:8081/
 ```
 
-Open the URL in desktop Chromium and press **Begin**. IWER (the WebXR emulator injected by the
+Open the URL in desktop Chromium and press **Light the lantern**. IWER (the WebXR emulator injected by the
 IWSDK dev plugin, on localhost only) emulates a Quest 3 in captured rooms. The IWSDK-managed
 alternative is `npm run dev`.
 
@@ -63,8 +64,13 @@ device-representative; the budget checks are structural (draw calls, triangles).
 
 ```sh
 npm run dev:emu &
-node e2e/capture.mjs music_room 90 core-loop 260    # room, heading, name, max seconds
+node e2e/capture.mjs music_room 90 core-loop 260 [choreography]   # room, heading, name, max seconds
 ```
+
+Choreographies: `coreLoop` (the whole show), `openingClip`, `wolfClip`. Captures load
+`?capture=1`: in the emulator only, a believable dim room replaces the grey placeholder room
+and the hand stand-ins are hidden. Stills of every text treatment:
+`node e2e/style-stills.mjs text music_room 90 textStills`.
 
 The capture records the real app in IWER at a perfectly smooth 60 fps on any machine:
 - `e2e/capture/vclock.js` freezes `requestAnimationFrame` and time.

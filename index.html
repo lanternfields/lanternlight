@@ -10,7 +10,7 @@
     <style>
       :root {
         --ink: #f6e7cf;
-        --muted: #c9b59a;
+        --muted: #e6d5bb;
         --bg: #120c0a;
         --amber: #f2a04a;
         --amber-deep: #c96f2a;
@@ -28,7 +28,7 @@
           var(--bg);
       }
       #landing.hidden { display: none; }
-      .card { max-width: 620px; width: 100%; text-align: center; }
+      .card { max-width: 780px; width: 100%; text-align: center; }
       .lamp {
         width: 74px; height: 92px; margin: 0 auto 18px; position: relative;
         filter: drop-shadow(0 0 26px rgba(242,160,74,0.7));
@@ -42,24 +42,37 @@
       .lamp .cap.top { top: 6px; } .lamp .cap.bottom { top: 76px; }
       @keyframes flicker { 0%,100% { opacity: 1 } 40% { opacity: 0.9 } 60% { opacity: 0.96 } }
       @media (prefers-reduced-motion: reduce) { .lamp .body { animation: none; } }
-      h1 { font-size: clamp(40px, 8vw, 64px); font-weight: 400; letter-spacing: 0.04em; margin: 0 0 6px; }
-      .tag { font-style: italic; color: var(--muted); font-size: 19px; margin: 0 0 26px; }
+      h1 { font-size: clamp(48px, 9vw, 84px); font-weight: 400; letter-spacing: 0.04em; margin: 0 0 6px; }
+      .tag { font-style: italic; color: var(--muted); font-size: clamp(20px, 2.6vw, 27px); margin: 0 0 28px; }
       button.begin {
-        font: inherit; font-size: 22px; letter-spacing: 0.06em; color: #1b0f08; cursor: pointer;
+        font: inherit; font-size: 26px; letter-spacing: 0.06em; color: #1b0f08; cursor: pointer;
         background: linear-gradient(#ffcf8c, var(--amber)); border: 0; border-radius: 40px;
-        padding: 16px 46px; box-shadow: 0 0 34px rgba(242,160,74,0.55);
+        padding: 18px 54px; box-shadow: 0 0 34px rgba(242,160,74,0.55);
       }
       button.begin:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
       button.begin:focus-visible, .opts input:focus-visible { outline: 3px solid #fff3dc; outline-offset: 3px; }
-      .how { margin: 26px auto 0; max-width: 520px; text-align: left; color: var(--muted); line-height: 1.55; font-size: 16px; }
-      .how b { color: var(--ink); font-weight: 400; }
-      .opts { margin: 22px auto 0; max-width: 520px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; text-align: left; font-size: 16px; }
+      .steps { list-style: none; counter-reset: step; margin: 6px auto 30px; padding: 0; max-width: 680px; display: grid; gap: 14px; text-align: left; }
+      .steps li { counter-increment: step; display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 18px; font-size: clamp(20px, 2.3vw, 26px); color: var(--ink); }
+      .steps svg { width: 56px; height: 56px; fill: var(--ink); }
+      .steps svg .wall { fill: #8a6a4e; }
+      .steps svg .glow { fill: var(--amber); }
+      .steps svg .shadow { fill: #f6e7cf; }
+      .steps span::before { content: counter(step) '. '; color: var(--amber); }
+      details.settings { margin: 26px auto 0; max-width: 680px; text-align: left; }
+      details.settings summary { cursor: pointer; font-size: clamp(18px, 1.9vw, 21px); color: var(--muted); letter-spacing: 0.08em; font-variant: small-caps; list-style: none; text-align: center; }
+      details.settings summary::-webkit-details-marker { display: none; }
+      details.settings summary::after { content: ' ▾'; }
+      details.settings[open] summary::after { content: ' ▴'; }
+      .hint { color: var(--muted); font-size: clamp(16px, 1.6vw, 18px); line-height: 1.5; margin: 16px 0 0; }
+      .how { margin: 28px auto 0; max-width: 680px; text-align: left; color: var(--muted); line-height: 1.6; font-size: clamp(18px, 2vw, 22px); }
+      .how b { color: #fff4e2; font-weight: 500; }
+      .opts { margin: 24px auto 0; max-width: 680px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 22px; text-align: left; font-size: clamp(17px, 1.8vw, 20px); color: var(--ink); }
       .opts label { display: flex; gap: 10px; align-items: center; cursor: pointer; }
-      .opts input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--amber); }
+      .opts input[type=checkbox] { width: 24px; height: 24px; accent-color: var(--amber); }
       .opts .wide { grid-column: 1 / -1; }
       .opts input[type=range] { flex: 1; accent-color: var(--amber); }
-      #notice { margin-top: 16px; color: #ffcf8c; min-height: 1.4em; }
-      footer { margin-top: 26px; font-size: 13px; color: #8f7d68; line-height: 1.6; }
+      #notice { margin-top: 16px; color: #ffd9a0; min-height: 1.4em; font-size: clamp(17px, 1.8vw, 20px); }
+      footer { margin-top: 28px; font-size: clamp(14px, 1.4vw, 16px); color: #c4b096; line-height: 1.6; }
       @media (max-width: 520px) { .opts { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -69,24 +82,36 @@
       <div class="card">
         <div class="lamp" aria-hidden="true"><div class="cap top"></div><div class="body"></div><div class="cap bottom"></div></div>
         <h1>Lanternlight</h1>
-        <p class="tag">A hand-shadow theatre for your room</p>
+        <p class="tag">Every wall is a stage, once the lantern is lit.</p>
+        <ol class="steps">
+          <li>
+            <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="30" y="6" width="12" height="36" rx="2" class="wall" /><circle cx="12" cy="14" r="5" /><path d="M8 22h8l2 10h-4l-1 10h-6l1-10h-4z" /></svg>
+            <span>Sit facing a wall.</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="12" r="7" class="glow" /><path d="M17 44V28c0-2 3-2 3 0v-9c0-2 3-2 3 0v-3c0-2 3-2 3 0v3c0-2 3-2 3 0v5c0-2 3-2 3 0v12c0 4-3 8-8 8z" /></svg>
+            <span>Raise your hands into the light.</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 40c-6 0-8-7-4-10 2-2 6-2 8 0l2-12c1-4 4-4 4 0v12l3-14c1-4 4-4 4 0l-2 14c3-3 7-2 7 2 0 5-6 8-12 8z" class="shadow" /></svg>
+            <span>Make shapes. The shadows will do the rest.</span>
+          </li>
+        </ol>
         <button class="begin" id="begin" type="button" disabled>Loading&hellip;</button>
         <div id="notice" role="status" aria-live="polite"></div>
-        <div class="how">
-          <p><b>Sit comfortably and face a wall.</b> A little paper lantern lights up beside you and turns
-          your wall into a stage. No free wall nearby? A paper scroll unrolls in front of you instead.</p>
-          <p><b>Your hands are the puppets.</b> Raise one into the light. Make shapes, feed the crocodile,
-          build a bridge for the rabbit. Controllers work too: they become shadow puppets on sticks.</p>
-          <p><b>Tap the lantern</b> any time to pause or change settings.</p>
-        </div>
-        <form class="opts" id="opts" onsubmit="return false">
-          <label><input type="checkbox" id="opt-gentle" /> Gentle mode (bigger targets, more help)</label>
-          <label><input type="checkbox" id="opt-captions" checked /> Captions</label>
-          <label><input type="checkbox" id="opt-motion" /> Reduce motion</label>
-          <label><input type="checkbox" id="opt-contrast" /> High contrast stage</label>
-          <label class="wide">Room dimming <input type="range" id="opt-dim" min="0" max="85" step="5" value="65" aria-label="Room dimming" /></label>
-          <label class="wide"><input type="checkbox" id="opt-left" /> I perform with my left hand</label>
-        </form>
+        <details class="settings">
+          <summary>Settings</summary>
+          <form class="opts" id="opts" onsubmit="return false">
+            <label><input type="checkbox" id="opt-gentle" /> Gentle mode (bigger targets, more help)</label>
+            <label><input type="checkbox" id="opt-captions" checked /> Captions</label>
+            <label><input type="checkbox" id="opt-full" /> Full captions (explain each step)</label>
+            <label><input type="checkbox" id="opt-motion" /> Reduce motion</label>
+            <label><input type="checkbox" id="opt-contrast" /> High contrast stage</label>
+            <label><input type="checkbox" id="opt-left" /> I perform with my left hand</label>
+            <label class="wide">Room dimming <input type="range" id="opt-dim" min="0" max="90" step="5" value="75" aria-label="Room dimming" /></label>
+          </form>
+          <p class="hint">Rest a fingertip on the lantern at any time to pause or change these. Controllers work too: they become shadow puppets on sticks.</p>
+        </details>
         <footer>
           Built with Meta's Immersive Web SDK &middot; built with AI assistance (Claude Code)<br />
           Everything stays on your headset. No account, no camera images, no tracking.<br />

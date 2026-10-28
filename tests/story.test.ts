@@ -209,10 +209,10 @@ describe("story: rabbit's bridge", () => {
     const model = new ShadowModel();
     const story = new Story();
     story.enter('bridge');
-    const ev = run(story, model, 10.5); // 2.3 s title card, then the rabbit waits at the edge
+    const ev = run(story, model, 16); // title card, the rabbit waits at the edge, then the prompt
     expect(ev).not.toContain('splash');
     expect(story.view.ghost.visible).toBeGreaterThan(0.2);
-    expect(story.view.caption).not.toBe('');
+    expect(story.view.text.prompt).toBe('Lay your hand flat. Be the bridge.');
   });
 });
 
@@ -226,7 +226,8 @@ describe('story: title cards', () => {
       expect(story.view.set).toBe(0);
       run(story, model, 1.0);
       expect(story.view.title.id).toBe(id);
-      run(story, model, 1.5);
+      expect(story.view.text.title).toMatch(/^I+ · The /);
+      run(story, model, 2.2);
       expect(story.view.title.id).toBe('');
       expect(story.view.set).toBe(1);
     }
@@ -339,7 +340,7 @@ describe('story: the moon wolf', () => {
     hand.actor.sizeRatio = ratio;
   };
 
-  it('a big shadow scares the wolf away three times, then it howls and the tale completes', () => {
+  it('one big shadow scares the wolf (rear, then bolt), it peeks back and sings; about 20 s in all', () => {
     const model = new ShadowModel();
     const hand = new FakeHand(model);
     const story = new Story();
@@ -352,9 +353,11 @@ describe('story: the moon wolf', () => {
       story.update(1 / 72, model);
       for (const e of story.events) ev.push(e.type);
     }
-    expect(ev.filter((e) => e === 'wolfFlee').length).toBe(3);
+    expect(ev.filter((e) => e === 'wolfFlee').length).toBe(1);
     expect(ev).toContain('howl');
     expect(story.progress.completed.wolf).toBe(true);
+    // staged as one beat: the whole tale (with its title card) stays short
+    expect(story.time).toBeLessThan(26);
   });
 
   it('with no help the wolf only sits by the rabbit (no harm) and the hint appears', () => {
@@ -365,7 +368,7 @@ describe('story: the moon wolf', () => {
     expect(story.wolf.state).toBe('sit');
     expect(story.rabbit.state).toBe('idle');
     expect(story.view.ghost.visible).toBeGreaterThan(0.2);
-    expect(story.view.caption).not.toBe('');
+    expect(story.view.text.prompt).not.toBe('');
   });
 
   it('the assist makes the wolf more timid over time', () => {

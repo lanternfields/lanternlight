@@ -17,6 +17,7 @@ import { BASE, OUT, installPoses, setRoom } from './lib.mjs';
 const label = process.argv[2] ?? 'after';
 const room = process.argv[3] ?? 'music_room';
 const yaw = Number(process.argv[4] ?? 90);
+const choreo = process.argv[5] ?? 'stills';
 const W = Number(process.env.STILLS_W ?? 1920);
 const H = Number(process.env.STILLS_H ?? 1080);
 const FPS = 60;
@@ -38,7 +39,7 @@ page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text());
 });
 
-await page.goto(BASE + '?tester=1', { waitUntil: 'load', timeout: 120000 });
+await page.goto(BASE + (process.env.STILLS_QUERY ?? '?tester=1&capture=1'), { waitUntil: 'load', timeout: 120000 });
 await page.waitForFunction(() => !!window.__lantern && !!window.IWER_DEVICE, null, { timeout: 120000 });
 await installPoses(page);
 await setRoom(page, room);
@@ -87,10 +88,10 @@ await page.evaluate(() => {
 });
 await page.addScriptTag({ path: path.join(here, 'capture', 'director.js') });
 await page.waitForTimeout(400);
-await page.evaluate(() => {
-  window.__director.start('stills');
+await page.evaluate((c) => {
+  window.__director.start(c);
   window.__vclock.enable();
-});
+}, choreo);
 
 const shots = [];
 const motion = [];

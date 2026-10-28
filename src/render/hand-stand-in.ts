@@ -15,8 +15,10 @@ import {
   Vector3,
   Group,
   InstancedBufferAttribute,
+  Vector2,
 } from '@iwsdk/core';
 import { HandFrame, J, SHADOW_BONES } from '../core/hand-model.js';
+import type { StageFrame } from '../core/projection.js';
 
 const VERT = /* glsl */ `
   varying vec3 vN;
@@ -47,9 +49,32 @@ const BONE_VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   uniform vec3 uLantern;
   uniform float uGlow;
+  uniform float uMask;
+  uniform vec3 uSO;
+  uniform vec3 uSN;
+  uniform vec3 uSR;
+  uniform vec3 uSU;
+  uniform vec2 uSHalf;
   varying vec3 vN;
   varying vec3 vW;
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
   void main() {
+    if (uMask > 0.5) {
+      // recordings: keep the stand-in out of the stage (its shadow is what
+      // matters there), with a soft dithered edge
+      vec3 ro = cameraPosition;
+      vec3 rd = normalize(vW - ro);
+      float dn = dot(uSN, rd);
+      if (dn < -1e-4) {
+        vec3 hit = ro + rd * (dot(uSN, uSO - ro) / dn) - uSO;
+        vec2 st = vec2(dot(hit, uSR), dot(hit, uSU));
+        vec2 e = uSHalf - abs(st);
+        float d = min(e.x, e.y);
+        float band = 0.06 * uSHalf.y;
+        if (d > band) discard;
+        if (d > 0.0 && hash(gl_FragCoord.xy) < d / band) discard;
+      }
+    }
     vec3 n = normalize(vN);
     vec3 toL = uLantern - vW;
     float d = length(toL);
@@ -149,7 +174,16 @@ class StandInHand {
 export class HandStandIns {
   readonly group = new Group();
   readonly material = new ShaderMaterial({
-    uniforms: { uLantern: { value: new Vector3(0, 0.8, -0.3) }, uGlow: { value: 1 } },
+    uniforms: {
+      uLantern: { value: new Vector3(0, 0.8, -0.3) },
+      uGlow: { value: 1 },
+      uMask: { value: 0 },
+      uSO: { value: new Vector3() },
+      uSN: { value: new Vector3(0, 0, 1) },
+      uSR: { value: new Vector3(1, 0, 0) },
+      uSU: { value: new Vector3(0, 1, 0) },
+      uSHalf: { value: new Vector2(1, 0.5) },
+    },
     vertexShader: VERT,
     fragmentShader: FRAG,
   });
@@ -165,9 +199,23 @@ export class HandStandIns {
     this.group.visible = false;
   }
 
-  update(visible: boolean, hands: readonly HandFrame[], lantern: Vector3, glow: number): void {
+  /**
+   * @param stage when given, the stand-in is kept out of the stage rectangle
+   * (recordings from the emulator); null in the virtual theatre.
+   */
+  update(visible: boolean, hands: readonly HandFrame[], lantern: Vector3, glow: number, stage: StageFrame | null = null): void {
     this.group.visible = visible;
     if (!visible) return;
+    const u = this.material.uniforms;
+    u.uMask.value = stage ? 1 : 0;
+    if (stage) {
+      const pad = 0.1;
+      (u.uSO.value as Vector3).set(stage.origin.x, stage.origin.y, stage.origin.z);
+      (u.uSN.value as Vector3).set(stage.normal.x, stage.normal.y, stage.normal.z);
+      (u.uSR.value as Vector3).set(stage.right.x, stage.right.y, stage.right.z);
+      (u.uSU.value as Vector3).set(stage.up.x, stage.up.y, stage.up.z);
+      (u.uSHalf.value as Vector2).set((stage.aspect / 2 + pad) * stage.height, (0.5 + pad) * stage.height);
+    }
     (this.material.uniforms.uLantern.value as Vector3).copy(lantern);
     this.material.uniforms.uGlow.value = 0.35 + 0.65 * glow;
     for (let i = 0; i < 2; i++) this.hands[i].update(hands[i]);

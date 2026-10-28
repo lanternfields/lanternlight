@@ -177,13 +177,14 @@ describe('the wolf eases in and out', () => {
     // it was moving at full prowl speed in the middle and almost stopped at the end
     expect(Math.min(...vs)).toBeLessThan(-0.06);
     expect(Math.abs(vs[vs.length - 1])).toBeLessThan(0.03); // and it settles to 0 while sitting
-    // scared: cowers, then a short crouch with no movement, then it runs
-    for (let i = 0; i < 72 * 3 && w.state !== 'flee'; i++) w.update(1 / 72, true);
-    expect(w.state).toBe('flee');
+    // scared: cowers, then rears back and HOLDS it (anticipation), then bolts
+    for (let i = 0; i < 72 * 3 && w.state !== 'rear'; i++) w.update(1 / 72, true);
+    expect(w.state).toBe('rear');
     const x0 = w.x;
-    for (let i = 0; i < 8; i++) w.update(1 / 72, false);
-    expect(w.x - x0).toBeLessThan(0.01);
+    for (let i = 0; i < 20; i++) w.update(1 / 72, false);
+    expect(w.state).toBe('rear');
+    expect(Math.abs(w.x - x0)).toBeLessThan(0.02);
     for (let i = 0; i < 72; i++) w.update(1 / 72, false);
-    expect(w.x - x0).toBeGreaterThan(0.2);
+    expect(w.x - x0).toBeGreaterThan(0.3);
   });
 });

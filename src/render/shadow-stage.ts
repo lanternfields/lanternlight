@@ -280,6 +280,7 @@ export class ShadowStage {
   private readonly crocOverlay = new CrocOverlay();
   private readonly title = new TitleCard();
   private readonly titleDisc = new Mesh(new PlaneGeometry(1, 1), createIconMaterial());
+  private readonly courageRing = new Mesh(new PlaneGeometry(1, 1), createIconMaterial());
   private readonly rabbitTilt = new Spring(0, 12, 0.7);
   private readonly rabbitEars = new Spring(0, 11, 0.38);
   private prevRabbitY = 0;
@@ -340,6 +341,9 @@ export class ShadowStage {
     this.titleDisc.frustumCulled = false;
     this.titleDisc.visible = false;
     this.scene.add(this.titleDisc);
+    this.courageRing.frustumCulled = false;
+    this.courageRing.visible = false;
+    this.scene.add(this.courageRing);
     // Draw order matters only for readability; MAX blending is order independent.
     this.setLayout(1.45, 512);
   }
@@ -520,23 +524,39 @@ export class ShadowStage {
     if (rg.visible) {
       const vy = dt > 0 ? (rv.y - this.prevRabbitY) / dt : 0;
       this.prevRabbitY = rv.y;
-      rg.position.set(rv.x, rv.y, 0);
+      // trembling while the wolf stalks: a small fast shiver (intentional secondary motion)
+      const shiver = reduceMotion ? 0 : Math.sin(time * 44) * 0.0022 * rv.tremble;
+      rg.position.set(rv.x + shiver, rv.y, 0);
       const sq = Math.max(0.6, Math.min(1.4, rv.squash));
-      const k = RABBIT_SCALE;
+      const k = RABBIT_SCALE * rv.scale;
       rg.scale.set(rv.dir * (1 / Math.sqrt(sq)) * k, sq * k, 1);
       // lean into the hop: nose up rising, down falling
       const tilt = this.rabbitTilt.update(rv.hopping ? Math.max(-0.3, Math.min(0.35, vy * 0.35)) : 0, dt);
       this.rabbit.body.rotation.z = tilt;
       // ears lag behind the body's vertical motion and twitch now and then
       const twitch = reduceMotion ? 0 : keyLoop(time + rv.x * 3, 5.3, EAR_TWITCH);
-      const earT = rv.peering ? -0.15 + Math.sin(time * 6) * 0.08 : -Math.max(-0.5, Math.min(0.5, vy * 0.55)) + twitch;
+      const earT = rv.peering
+        ? -0.15 + Math.sin(time * 6) * 0.08
+        : -Math.max(-0.5, Math.min(0.5, vy * 0.55)) + twitch * (1 - rv.tremble) - 0.55 * rv.tremble;
       this.rabbit.ears.rotation.z = this.rabbitEars.update(earT, dt);
     }
 
     // ---- wolf & moon
     const wv = view.wolf;
-    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible * (view.scene === 'wolf' ? set : 1), time);
     const mv = view.moon;
+    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible * (view.scene === 'wolf' ? set : 1), time, 1.15 * wv.scale, wv.hesitate, wv.vx);
+    // the moon's ring fills as your shadow grows (the wolf tale's courage meter)
+    const cr = this.courageRing;
+    cr.visible = view.courageRing > 0.02 && mv.visible > 0.1;
+    if (cr.visible) {
+      const u = (cr.material as ShaderMaterial).uniforms;
+      cr.position.set(mv.s, mv.t, 0);
+      cr.scale.setScalar(mv.r * 2 * 2.3);
+      u.uFill.value = Math.min(1, view.courage);
+      u.uVisible.value = view.courageRing;
+      u.uDone.value = 0;
+      u.uTime.value = time;
+    }
     this.moon.visible = mv.visible > 0.02;
     this.moon.position.set(mv.s, mv.t, 0);
     this.moon.scale.setScalar(mv.r * (0.85 + 0.15 * mv.visible));

@@ -74,10 +74,24 @@ pure black; the shapes do not change.
 ### Typeface
 
 - **One typeface: EB Garamond** (SIL Open Font License, bundled with the app
-  via `@fontsource`, so the Quest browser and the capture match). Captions
-  use the italic, the tester card uses the regular weight.
-- Captions are short, sentence case and wordless whenever possible: a tale
-  must read without them (see §3).
+  via `@fontsource`, so the Quest browser and the capture match).
+
+### Words on stage: two kinds, never mixed
+
+| | Storyteller lines | Prompts |
+| --- | --- | --- |
+| Voice | one narrator telling a child a story, present tense, short lines | a few words spoken to the hands; never "tap", "press" or mechanics |
+| When | the opening and close of each tale, and the twist; one line at a time, max(3.5 s, 1 s per 6 words), 0.4 s fades | only when the player stalls: the ghost-hand pictogram after ~4 s, the words after ~8 s; they dissolve as soon as the player acts |
+| Look | EB Garamond italic, lettered in lamplight on a paper-cut ribbon that unfurls in the upper third of the pool | EB Garamond small caps in warm ivory, under the stage below the pictogram |
+
+- **Title cards:** small caps with the roman numeral above the emblem ring
+  ("I · The Hungry River"), letter-spaced, ink-dark on the warm light, held 2 s.
+- **Size:** x-height at least 34 px in the 1080p capture (at least 1.4° of
+  visual angle in the headset): storyteller lines are 0.14 stage units of em,
+  prompts 0.156.
+- **Captions setting:** on by default (lines and short prompts). Full captions
+  swap in prompts that explain each step at length. Off leaves the pictograms and
+  title cards.
 
 ---
 
@@ -92,7 +106,7 @@ Nothing may look pixelated or shimmer, on a Quest or in the capture.
 | Canvas text (captions, tester card, lantern menu) | drawn at 2× the size it appears at, **mipmapped** (`LinearMipmapLinearFilter`), anisotropy 4 |
 | 3D meshes near the viewer (lantern, rod puppets, scroll dowels) | ≥ 32 radial segments, ≥ 48 for lathed shapes; no visible facets at 30 cm |
 | Main renderer | `antialias: true`, `devicePixelRatio` from the device (IWSDK default); XR framebuffer scale 1.0 |
-| Capture | 1920×1080, frame-stepped at 60 fps (virtual clock), JPEG q92 → H.264 CRF 17, 50° vertical FOV framing the stage |
+| Capture | 1920×1080, frame-stepped at 60 fps (virtual clock), JPEG q92 → H.264 CRF 17, 50° vertical FOV framing the stage. `?capture=1` (emulator only) replaces the emulator's grey placeholder room with a dim plaster wall and a dark floor lit by the lantern, and hides the hand stand-ins. Passthrough on a headset is never affected. |
 | Texture filtering | **never** `NearestFilter`; every texture is linear (mipmapped if it can be minified) |
 
 Adaptive quality may lower the stage resolution under load; it never

@@ -211,6 +211,9 @@ export class RoomDim {
         uPool: { value: 0 },
         uLantern: { value: new Vector3(0, 0.8, -0.3) },
         uLanternGlow: { value: 0 },
+        uFake: { value: 0 },
+        uFloorY: { value: 0 },
+        uHouse: { value: 1 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vWorld;
@@ -231,10 +234,68 @@ export class RoomDim {
         uniform float uPool;
         uniform vec3 uLantern;
         uniform float uLanternGlow;
+        uniform float uFake;
+        uniform float uFloorY;
+        uniform float uHouse;
         varying vec3 vWorld;
+        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p); vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+        }
+        float fbm(vec2 p) { return vnoise(p) * 0.55 + vnoise(p * 2.7 + 3.1) * 0.3 + vnoise(p * 7.9 + 1.7) * 0.15; }
+        /**
+         * Capture only (the desktop emulator has no real room): a believable
+         * dim room - a plaster wall lit by the lantern's spill around the stage,
+         * a dark wooden floor, darkness beyond. Opaque, so the emulator's grey
+         * placeholder room never shows. Never used with real passthrough.
+         */
+        vec4 fakeRoom(vec3 ro, vec3 rd) {
+          float tw = 1e9;
+          vec2 st = vec2(0.0);
+          float dn = dot(uNormal, rd);
+          if (dn < -1e-4) {
+            float t = dot(uNormal, uOrigin - ro) / dn;
+            if (t > 0.0) {
+              tw = t;
+              vec3 hit = ro + rd * t - uOrigin;
+              st = vec2(dot(hit, uRight), dot(hit, uUp));
+            }
+          }
+          float tf = rd.y < -1e-4 ? (uFloorY - ro.y) / rd.y : 1e9;
+          vec3 lampCol = vec3(1.0, 0.62, 0.32);
+          vec3 col = vec3(0.012, 0.009, 0.008);
+          if (tw < tf && tw < 1e8) {
+            // plaster: soft large blotches, fine grain, a hint of trowel strokes
+            float g = fbm(st * 2.2) * 0.6 + fbm(st * 9.0 + 4.0) * 0.3 + vnoise(st * vec2(40.0, 22.0)) * 0.1;
+            vec3 albedo = vec3(0.62, 0.56, 0.5) * (0.9 + 0.16 * g);
+            // lamplight falls off around the stage (a warm vignette), darker far away
+            vec2 q = vec2(st.x / (uHeight * (uAspect * 0.5 + 0.35)), st.y / (uHeight * 0.85));
+            float r = length(q);
+            float spill = exp(-r * r * 0.9) * 0.34 + exp(-r * r * 3.0) * 0.18;
+            // the lantern's own glow on the wall below and beside it
+            vec3 wp = uOrigin + uRight * st.x + uUp * st.y;
+            float dl = length(wp - uLantern);
+            spill += 0.1 / (1.0 + dl * dl * 6.0);
+            col = albedo * (0.022 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
+          } else if (tf < 1e8) {
+            vec3 hit = ro + rd * tf;
+            float grain = vnoise(vec2(hit.x * 1.5, hit.z * 26.0)) * 0.5 + vnoise(hit.xz * 6.0) * 0.5;
+            vec3 wood = vec3(0.16, 0.1, 0.065) * (0.8 + 0.3 * grain);
+            float dl = length(hit.xz - uLantern.xz);
+            float spill = 0.55 / (1.0 + dl * dl * 5.0) + 0.06 * exp(-pow(length(hit - uOrigin) / (uHeight * 2.5), 2.0));
+            col = wood * (0.02 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
+          }
+          return vec4(col, 1.0);
+        }
         void main() {
           vec3 ro = cameraPosition;
           vec3 rd = normalize(vWorld - ro);
+          if (uFake > 0.5) {
+            gl_FragColor = fakeRoom(ro, rd);
+            return;
+          }
           float hole = 0.0;
           float spillWall = 0.0;
           float denom = dot(uNormal, rd);

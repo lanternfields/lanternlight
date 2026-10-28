@@ -13,7 +13,7 @@ import { AudioEngine } from './audio/audio-engine.js';
 import { HandFrame, JOINT_COUNT, createHandFrame } from './core/hand-model.js';
 import { V3 } from './core/math.js';
 import { AdaptiveQuality, FrameStats, QUALITY_LEVELS } from './core/perf.js';
-import { computeFocalLight, createProjected, nominalHandPoint, projectToStage, stageToWorld } from './core/projection.js';
+import { computeFocalLight, createProjected, nominalHandPoint, projectToStage, stageToWorld, StageFrame } from './core/projection.js';
 import { browserStore, loadProgress, loadSettings, saveProgress, saveSettings, Settings } from './core/settings.js';
 import { RodInput, ShadowModel, createRodInput } from './core/shadow-model.js';
 import {
@@ -26,10 +26,12 @@ import {
   DEFAULT_PLACEMENT,
 } from './core/stage-placement.js';
 import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
-import { SceneId, Story } from './core/story.js';
+import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT } from './core/story.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
 import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
+import { StageText } from './render/stage-text.js';
+import { easeInCubic, easeOutCubic } from './core/ease.js';
 import { HandStandIns } from './render/hand-stand-in.js';
 import { TextLabel } from './render/text.js';
 import { LanternMenu, MenuAction } from './render/lantern-menu.js';
@@ -78,14 +80,16 @@ export class App {
   readonly composite: StageComposite;
   readonly dim = new RoomDim();
   readonly lantern = new Lantern();
-  readonly caption = new TextLabel(2400, 200, 0.05);
+  /** On-stage words (STORY_TEXT.md): storyteller ribbon, hand prompt, tale title. */
+  readonly banner = new StageText('banner');
+  readonly promptText = new StageText('prompt');
+  readonly titleText = new StageText('title');
+  private lastLineAlpha = 0;
+  private trembling = false;
+  private lineLeaving = false;
   /** Lantern-lit stand-ins for your hands where passthrough can't show them. */
   readonly standIns = new HandStandIns();
   private readonly flameW = new Vector3();
-  readonly iconLabels = [new TextLabel(1600, 200, 0.04), new TextLabel(1600, 200, 0.04), new TextLabel(1600, 200, 0.04)];
-  /** Caption shown now and its eased opacity (captions cross-fade, never pop). */
-  private capShown = '';
-  private capAlpha = 0;
   readonly audio = new AudioEngine();
   readonly menu: LanternMenu;
   readonly theatre = new VirtualTheatre();
@@ -135,8 +139,12 @@ export class App {
   private saveTimer = 0;
   private readonly store = browserStore();
 
-  constructor(readonly world: World, opts: { tester?: boolean } = {}) {
+  /** Recording look (?capture=1, emulator only): a believable room instead of the emulator's placeholder. */
+  readonly capture: boolean;
+
+  constructor(readonly world: World, opts: { tester?: boolean; capture?: boolean } = {}) {
     this.tester = !!opts.tester;
+    this.capture = !!opts.capture;
     this.menu = new LanternMenu(this.tester);
     this.hud.enabled = this.tester;
     this.settings = loadSettings(this.store);
@@ -154,7 +162,9 @@ export class App {
     add(this.composite.mesh);
     add(this.composite.rods);
     add(this.lantern.group);
-    add(this.caption.mesh);
+    add(this.banner.mesh);
+    add(this.promptText.mesh);
+    add(this.titleText.mesh);
     add(this.menu.group);
     add(this.hud.mesh);
     add(this.theatre.group);
@@ -163,7 +173,6 @@ export class App {
     world.createTransformEntity(this.puppets[0].group, { parent: grips.left, persistent: true });
     world.createTransformEntity(this.puppets[1].group, { parent: grips.right, persistent: true });
     for (let i = 0; i < this.menu.buttons.length; i++) this.buttonArmed.push(true);
-    for (const l of this.iconLabels) add(l.mesh);
     this.setShowVisible(false);
     world.visibilityState.subscribe((state) => this.onVisibility(state));
   }
@@ -190,12 +199,13 @@ export class App {
     this.lantern.group.visible = v;
     if (!v) {
       this.composite.rods.visible = false;
-      this.caption.mesh.visible = false;
+      this.banner.mesh.visible = false;
+      this.promptText.mesh.visible = false;
+      this.titleText.mesh.visible = false;
       this.menu.open = false;
       this.menu.t = 0;
       this.menu.group.visible = false;
       for (const p of this.puppets) p.group.visible = false;
-      for (const l of this.iconLabels) l.mesh.visible = false;
       this.standIns.group.visible = false;
     }
   }
@@ -650,15 +660,34 @@ export class App {
     // Composite + room + lantern.
     this.lantern.update(time, view.flame, reduce);
     this.lantern.flamePosition(this.flameW);
-    this.standIns.update(this.emulated || this.session.mode === 'vr', this.hands, this.flameW, view.flame);
+    // (emulator: kept out of the stage so recordings show the show; VR theatre: whole hands)
+    // recordings (?capture=1) show the shadows alone; the emulator keeps stand-ins out of the stage
+    const showStandIns = (this.emulated && !this.capture) || this.session.mode === 'vr';
+    this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, this.emulated && this.session.mode !== 'vr' ? fr : null);
     for (let i = 0; i < 2; i++) {
       const vis = this.rods[i].connected;
       this.puppets[i].group.visible = vis;
       if (vis) this.puppets[i].update(this.rods[i].trigger);
     }
     const u = this.composite.material.uniforms;
-    u.uLight.value = view.light;
-    u.uWarmth.value = view.warmth;
+    // the scare: a flare of lamplight; the courage ring warms the pool as your shadow grows
+    u.uLight.value = view.light * (1 + 0.45 * view.flare);
+    u.uWarmth.value = Math.min(1, Math.max(view.warmth, view.flare * 0.9, view.courageRing * Math.min(1, view.courage) * 0.45));
+    // ...and the wall trembles for a moment (never with reduced motion)
+    if (view.tremble > 0.001 && !reduce) {
+      const amp = 0.0035 * fr.height * view.tremble;
+      const ox = Math.sin(time * 93) * amp;
+      const oy = Math.sin(time * 71 + 1.3) * amp * 0.6;
+      this.composite.mesh.position.set(
+        fr.origin.x + fr.right.x * ox + fr.up.x * oy,
+        fr.origin.y + fr.right.y * ox + fr.up.y * oy,
+        fr.origin.z + fr.right.z * ox + fr.up.z * oy,
+      );
+      this.trembling = true;
+    } else if (this.trembling) {
+      this.composite.mesh.position.set(fr.origin.x, fr.origin.y, fr.origin.z);
+      this.trembling = false;
+    }
     u.uFlicker.value = this.lantern.flicker * view.flame;
     u.uFade.value = view.fade;
     u.uContrast.value = this.settings.highContrast ? 1 : 0;
@@ -670,10 +699,14 @@ export class App {
     du.uPool.value = view.light;
     this.lantern.flamePosition(du.uLantern.value as Vector3);
     du.uLanternGlow.value = view.flame;
+    const fake = this.capture && this.emulated;
+    du.uFake.value = fake ? 1 : 0;
+    // opaque (drawn first, under the lantern and hands) only in the capture look
+    if (this.dim.material.transparent === fake) this.dim.material.transparent = !fake;
+    du.uHouse.value = 1 - view.dim;
     this.dim.mesh.position.set(this.head.x, this.head.y, this.head.z);
 
-    this.textDt = dt;
-    this.updateText(view.caption);
+    this.updateText();
     this.updateHud(dt);
 
     // Audio.
@@ -691,49 +724,49 @@ export class App {
     this.cpuStats.push(performance.now() - t0);
   }
 
-  private textDt = 1 / 72;
+  /** Places a stage-text quad at stage (s, t), just in front of the surface. */
+  private placeText(t: StageText, fr: StageFrame, s: number, tt: number): void {
+    const p = this.tmpV3;
+    stageToWorld(fr, s, tt, p);
+    t.mesh.position.set(p.x + fr.normal.x * 0.012, p.y + fr.normal.y * 0.012, p.z + fr.normal.z * 0.012);
+    t.mesh.quaternion.copy(this.composite.mesh.quaternion);
+    t.mesh.scale.set(t.spec.units * fr.height, t.heightUnits * fr.height, 1);
+  }
 
-  private updateText(caption: string): void {
+  private updateText(): void {
     const fr = this.placement!.frame;
     const view = this.story.view;
-    const want = this.settings.captions ? caption : '';
-    // cross-fade: fade the old caption out (0.18 s), switch, fade the new one in (0.35 s)
-    const dt = this.textDt;
-    if (want !== this.capShown) {
-      this.capAlpha = Math.max(0, this.capAlpha - dt / 0.18);
-      if (this.capAlpha <= 0 || this.capShown === '') {
-        this.capShown = want;
-        this.caption.set(want);
-      }
-    } else if (want) {
-      this.capAlpha = Math.min(1, this.capAlpha + dt / 0.35);
-    }
-    if (this.capShown) {
-      const p = this.tmpV3;
-      stageToWorld(fr, 0, -0.5 - STAGE_PAD * 0.5, p);
-      this.caption.mesh.position.set(p.x + fr.normal.x * 0.01, p.y + fr.normal.y * 0.01, p.z + fr.normal.z * 0.01);
-      this.caption.mesh.quaternion.copy(this.composite.mesh.quaternion);
-      const s = fr.height * 0.088;
-      this.caption.mesh.scale.set(s * (2400 / 200), s, 1);
-      const a = this.capAlpha;
-      this.caption.setOpacity(a * a * (3 - 2 * a) * (1 - view.fade));
-    } else this.caption.setOpacity(0);
-    for (let i = 0; i < this.iconLabels.length; i++) {
-      const icon = view.icons[i];
-      const label = this.iconLabels[i];
-      // wordless by default: a tale's name appears only while you choose it
-      const show = view.scene === 'menu' && icon.visible > 0.05 && icon.fill > 0.02;
-      label.set(show ? icon.label : '');
-      if (!show) continue;
-      const p = this.tmpV3;
-      stageToWorld(fr, icon.s, icon.t - icon.r - 0.075, p);
-      label.mesh.position.set(p.x + fr.normal.x * 0.01, p.y + fr.normal.y * 0.01, p.z + fr.normal.z * 0.01);
-      label.mesh.quaternion.copy(this.composite.mesh.quaternion);
-      const s = fr.height * 0.085;
-      label.mesh.scale.set(s * (1600 / 200), s, 1);
-      const f = Math.min(1, icon.fill * 4);
-      label.setOpacity(f * f * (3 - 2 * f) * icon.visible * (1 - view.fade));
-    }
+    const tv = view.text;
+    const vis = 1 - view.fade;
+    const words = this.settings.captions;
+    // storyteller ribbon: unfurls in, fades out (upper third of the light)
+    this.banner.set(words ? tv.line : '');
+    if (tv.lineAlpha > this.lastLineAlpha + 1e-4) this.lineLeaving = false;
+    else if (tv.lineAlpha < this.lastLineAlpha - 1e-4) this.lineLeaving = true;
+    this.lastLineAlpha = tv.lineAlpha;
+    const a = tv.lineAlpha;
+    const reveal = this.lineLeaving ? 1 : 1 - Math.pow(1 - a, 3);
+    this.banner.show((this.lineLeaving ? a : Math.min(1, a * 1.6)) * vis, reveal);
+    // (in the menu the ribbon sits a little higher, clear of the story lanterns)
+    if (this.banner.mesh.visible) this.placeText(this.banner, fr, 0, view.scene === 'menu' ? 0.355 : 0.3);
+    // prompt: a few small-caps words under the stage, below the pictogram
+    const prompt = !words ? '' : this.settings.fullCaptions ? tv.promptFull || tv.prompt : tv.prompt;
+    this.promptText.set(prompt);
+    const pa = tv.promptAlpha;
+    this.promptText.show(pa * pa * (3 - 2 * pa) * vis);
+    if (this.promptText.mesh.visible) this.placeText(this.promptText, fr, 0, -0.5 - STAGE_PAD - this.promptText.heightUnits * 0.42);
+    // title: small caps above the emblem ring, timed with the card
+    this.titleText.set(tv.title);
+    const t = view.title.t;
+    const ta = !view.title.id
+      ? 0
+      : t < TITLE_IN
+        ? easeOutCubic(t / TITLE_IN)
+        : t < TITLE_IN + TITLE_HOLD
+          ? 1
+          : 1 - easeInCubic((t - TITLE_IN - TITLE_HOLD) / TITLE_OUT);
+    this.titleText.show(ta * vis);
+    if (this.titleText.mesh.visible) this.placeText(this.titleText, fr, 0, 0.385);
   }
 
   // ------------------------------------------------------------ lantern menu
