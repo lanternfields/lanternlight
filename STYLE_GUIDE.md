@@ -121,13 +121,20 @@ paper-cut emblem (0.4 s in, 1.4 s hold, 0.5 s out), then the setting fades in.
 
 | Tale | Emblem | Setting | The player's hand becomes... |
 | --- | --- | --- | --- |
-| The Hungry Crocodile | a crocodile head, jaws open, a firefly before it | a river along the bottom, reeds and bulrushes on both banks, lily pads | a crocodile: cut-out eye, brow, nostril, back scutes along the hand and forearm, teeth that open and close with the jaw |
-| Rabbit's Bridge | a rabbit on a plank over water | two banks with a gap and a river, the rabbit's burrow with a lit doorway on the far bank | a bridge (ghost hint: a flat hand across the gap) |
-| The Moon Wolf | a wolf howling at the moon | a meadow with hills, the moon rising, the rabbit trembling by its burrow | something big and brave (two hands are bigger) |
+| The Hungry River | a crocodile head, jaws open, a firefly before it | a river along the bottom, reeds and bulrushes on both banks, lily pads; Pip, small, in a gap in the far-bank reeds (out of the firefly band) | a crocodile: cut-out eye, brow, nostril, bold back scutes along the hand and forearm, bold teeth that open and close with the jaw; each firefly it swallows keeps glowing in its throat, and at the close the full crocodile drifts off down the river, a night-light |
+| The Broken Bridge | a rabbit on a plank over water | two banks with a gap and a river with lamplit ripples, the rabbit's burrow with a lit doorway on the far bank; shadows come into sharper focus here | a bridge (ghost hint: a flat hand across the gap) |
+| The Moon Wolf | a wolf howling at the moon | a meadow with hills; the moon rises right behind Pip, so the wolf's walk toward the moon reads as a walk toward Pip; the wolf is lanky (~1.6x Pip's height: long legs, long snout, tall ears, a brush tail) in Pip's round paper-cut language | something big and brave (two hands are bigger); no meter: as the shadow grows the wolf's ears flatten, Pip trembles and the lamplight brightens |
+| The Last Light (finale) | a paper bird in flight with a spark in its beak | Pip and the wolf under the moon; a paper bird (round body, fan tail) flits with nowhere to land | a branch: one finger held very still; the bird lands on its shadow with a squash and settle bounce, then a spark from the real lantern arcs across the room to it, it carries the light away, the pool fades and the room's dimming lifts |
 
 Feedback is always visual **and** audible: a chomp snaps the teeth shut, a
-caught firefly flies into the mouth and flashes, and the crocodile's throat
-glows as it swallows.
+caught firefly flashes in the mouth with a small glass chime, and its light
+travels down into the throat and stays there.
+
+**Spacing rule.** Story silhouettes (Pip, the wolf, the bird, the drifting
+crocodile) never overlap and keep at least about one body-width (the smaller
+one's) apart; `silhouettes()` in `src/core/story.ts` is the single source,
+and a unit test runs every tale against it. Only the bird perched on your
+own finger follows your hand wherever it goes.
 
 ---
 

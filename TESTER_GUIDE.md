@@ -11,6 +11,13 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 > 5. A storyteller now speaks in short lines on a paper ribbon, and short hints (like *Raise a hand into the light*) appear only if you pause. You can turn on **Full captions** under *Settings* for longer explanations.
 > 6. **The Moon Wolf** is now one big scare: make your shadow big once, and watch what the wolf does next.
 > 7. **Rabbit's Bridge**: if nobody helps for a while, a paper plank drops in so the rabbit always gets home.
+>
+> **Updated 29 Oct.** What changed since 28 Oct:
+> 1. **New story text** everywhere on the stage: the storyteller's lines and the short hints are all new (for example *Reach into the light*, *Make two long ears*).
+> 2. **A new ending, "The Last Light".** After all three tales, a little paper bird flits about looking for somewhere to land. **Hold up one finger and keep it very still**: the bird lands on your finger's shadow. Then watch where the light goes. If you don't, the bird lands on the ground after a while.
+> 3. The tales are now called **The Hungry River**, **The Broken Bridge** and **The Moon Wolf**. Pip the rabbit watches the crocodile from the reeds, and the wolf is taller and thinner.
+> 4. In **The Moon Wolf** there is no ring around the moon any more: as your shadow grows, the wolf's ears flatten, Pip trembles and the light gets brighter.
+> 5. The crocodile's fireflies are bigger, and each one you catch keeps glowing in its throat.
 
 ## Before you start (2 minutes)
 
@@ -45,17 +52,20 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 ## What to try (ticks itself on the Tester card)
 
 - **Make the rabbit.** Raise a hand into the light; when a faint ghost hand shows a "peace" sign, copy it.
-- **Feed the crocodile.** Hold your shadow on a glowing circle to open a tale. Open your hand,
-  then pinch your thumb and fingers together to bite the fireflies.
-- **Rabbit's bridge.** Hold your hand flat and sideways so its shadow makes a bridge over the
-  river. For the last river, bring your hand back toward you to make the shadow longer.
-  (If nobody helps for a while, a paper plank drops in, so the rabbit always gets home.)
+- **Feed the crocodile** (*The Hungry River*). Hold your shadow on a glowing circle to open a
+  tale. Open your hand, then pinch your thumb and fingers together to bite the fireflies.
+- **Rabbit's bridge** (*The Broken Bridge*). Hold your hand flat and sideways so its shadow
+  makes a bridge over the river. (If nobody helps for a while, a paper plank drops in, so the
+  rabbit always gets home.)
 - **Use both hands** at some point (either hand can perform).
 - **Try controllers**: pick them up. They become shadow puppets on sticks, and the trigger bites.
 - **Lantern menu**: rest a fingertip on the lantern for about half a second. Try *Dim*, and
   *Stage here* (press it, then look at where you want the stage and hold still for a moment).
 - **The Moon Wolf**: when the wolf creeps toward the rabbit, make your shadow big by bringing
   your hand back toward you (toward your chest), or raise both hands.
+- **The Last Light** (after all three tales): hold up one finger and keep it very still until
+  the bird lands on it. Then just watch, all the way to *Goodnight*. To start again, reach into
+  the light.
 
 ## Recording (please, if you can)
 
