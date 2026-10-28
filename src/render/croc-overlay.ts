@@ -69,6 +69,7 @@ export class CrocOverlay {
     details: CapsuleSink,
     holes: CapsuleSink,
     glows: GlowSink,
+    full = 0,
   ): void {
     this.gulp = Math.min(1, this.gulp + dt / 0.7);
     this.flash = Math.max(0, this.flash - dt / 0.25);
@@ -158,10 +159,10 @@ export class CrocOverlay {
       const bx = jx + px * (off - 0.003);
       const by = jy + py * (off - 0.003);
       if (i === N_SCUTES - 1) {
-        details.pushRaw(bx - dx * 0.01 * k, by - dy * 0.01 * k, bx + dx * 0.008 * k, by + dy * 0.008 * k, 0.011 * k, SOFT, vis, 0.008 * k);
+        details.pushRaw(bx - dx * 0.012 * k, by - dy * 0.012 * k, bx + dx * 0.009 * k, by + dy * 0.009 * k, 0.0135 * k, SOFT, vis, 0.0095 * k);
       } else {
-        const h = (0.019 - i * 0.002) * k;
-        details.pushRaw(bx, by, bx + px * h - dx * h * 0.35, by + py * h - dy * h * 0.35, 0.0075 * k, SOFT, vis, 0.0014);
+        const h = (0.027 - i * 0.0025) * k;
+        details.pushRaw(bx, by, bx + px * h - dx * h * 0.35, by + py * h - dy * h * 0.35, 0.0098 * k, SOFT, vis, 0.0016);
       }
     }
 
@@ -186,8 +187,8 @@ export class CrocOverlay {
         const fade = 1 - u * (1 - (c.fadeB ?? 1));
         const bx = c.ax + fx * u + qx * r * 0.82;
         const by = c.ay + fy * u + qy * r * 0.82;
-        const h = (0.021 - i * 0.0017) * k;
-        details.pushRaw(bx, by, bx + qx * h + (fx / fl) * h * 0.3, by + qy * h + (fy / fl) * h * 0.3, 0.0085 * k, SOFT, vis * fade, 0.0016);
+        const h = (0.03 - i * 0.0022) * k;
+        details.pushRaw(bx, by, bx + qx * h + (fx / fl) * h * 0.3, by + qy * h + (fy / fl) * h * 0.3, 0.011 * k, SOFT, vis * fade, 0.0018);
       }
     }
 
@@ -197,7 +198,7 @@ export class CrocOverlay {
     if (this.wasOpen && !isOpen) this.teeth.velocity -= 9;
     this.wasOpen = isOpen;
     const out = this.teeth.update(clamp01((open - 0.12) * 1.7), dt);
-    const tl0 = 0.021 * k * Math.max(0, Math.min(1.15, out));
+    const tl0 = 0.03 * k * Math.max(0, Math.min(1.15, out));
     const cx = ox + (lx - ox) * 0.3;
     const cy = oy + (ly - oy) * 0.3;
     const mx = ox + dx * len * 0.92 * 0.5 + (lx - ox) * 0.5;
@@ -223,31 +224,44 @@ export class CrocOverlay {
       const up = this.toothUp[i].update(Math.max(0, upRaw) * step, dt);
       const dn = this.toothDn[i].update(Math.max(0, dnRaw) * step, dt);
       const gap = up + dn;
-      const tl = Math.min(tl0 * (i === N_TEETH - 1 ? 1.2 : 1), gap * 0.42);
+      const tl = Math.min(tl0 * (i === N_TEETH - 1 ? 1.2 : 1), gap * 0.48);
       if (tl < 0.002 || closed) continue;
       const ubx = x + nx * (up + 0.6 * step);
       const uby = y + ny * (up + 0.6 * step);
-      details.pushRaw(ubx, uby, ubx - nx * tl, uby - ny * tl, 0.0062 * k, SOFT, vis, 0.0012);
+      details.pushRaw(ubx, uby, ubx - nx * tl, uby - ny * tl, 0.0088 * k, SOFT, vis, 0.0014);
       if (i < N_TEETH - 1) {
         const lbx = x - nx * (dn + 0.6 * step);
         const lby = y - ny * (dn + 0.6 * step);
-        details.pushRaw(lbx, lby, lbx + nx * tl * 0.85, lby + ny * tl * 0.85, 0.0056 * k, SOFT, vis, 0.0012);
+        details.pushRaw(lbx, lby, lbx + nx * tl * 0.85, lby + ny * tl * 0.85, 0.008 * k, SOFT, vis, 0.0014);
       }
     }
 
-    // ---- a catch: a flash in the mouth, then the firefly glows down the throat
-    if (this.flash > 0) glows.push(mx, my, 0.07 * k, this.flash * vis);
+    // ---- the throat: between the knuckles and the wrist, where swallowed fireflies keep glowing
+    let tx = ox - dx * len * 0.3;
+    let ty = oy - dy * len * 0.3;
+    if (fa >= 0) {
+      const c = model.capsules[fa];
+      tx = ox + (c.ax - ox) * 0.65;
+      ty = oy + (c.ay - oy) * 0.65;
+    }
+    // ---- a catch: a flash in the mouth, then the firefly glows down into the throat
+    if (this.flash > 0) {
+      glows.push(mx, my, 0.14 * k, 0.8 * this.flash * vis);
+      glows.push(mx, my, 0.04 * k, this.flash * vis);
+    }
     if (this.gulp < 1) {
-      const g = easeOutBack(this.gulp, 0.6);
-      let gx2 = ox + dx * len * (0.55 - g * 0.6);
-      let gy2 = oy + dy * len * (0.55 - g * 0.6);
-      if (fa >= 0 && g > 0.9) {
-        const c = model.capsules[fa];
-        const w = (g - 0.9) / 0.1;
-        gx2 += (c.ax + (c.bx - c.ax) * 0.35 - gx2) * w;
-        gy2 += (c.ay + (c.by - c.ay) * 0.35 - gy2) * w;
-      }
-      glows.push(gx2, gy2, 0.035 * k, 0.75 * (1 - this.gulp * 0.8) * vis);
+      const g = Math.min(1, easeOutBack(this.gulp, 0.6));
+      const sx = ox + dx * len * 0.55;
+      const sy = oy + dy * len * 0.55;
+      glows.push(sx + (tx - sx) * g, sy + (ty - sy) * g, 0.045 * k, 0.9 * (1 - this.gulp * 0.5) * vis);
+    }
+    // the swallowed fireflies don't go out: the throat glows, brighter the fuller it is
+    if (full > 0) {
+      const pulse = 0.85 + 0.15 * Math.sin(time * 2.4);
+      // (the first catch lights it as the firefly arrives)
+      const settle = this.gulp < 1 && full < 0.2 ? this.gulp : 1;
+      glows.push(tx, ty, (0.07 + 0.05 * full) * k, (0.22 + 0.3 * full) * pulse * vis * settle);
+      glows.push(tx, ty, (0.026 + 0.012 * full) * k, (0.5 + 0.45 * full) * pulse * vis * settle);
     }
     this.init = true;
     this.lastEye[0] = ex;

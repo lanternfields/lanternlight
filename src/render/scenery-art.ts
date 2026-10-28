@@ -24,11 +24,12 @@ const REEDS: readonly Reed[] = [
   { x: -0.665, h: 0.2, lean: 0.045, head: false, seed: 3 },
   { x: -0.62, h: 0.24, lean: 0.06, head: true, seed: 4 },
   { x: -0.585, h: 0.15, lean: 0.05, head: false, seed: 5 },
-  { x: 0.585, h: 0.17, lean: -0.05, head: false, seed: 6 },
-  { x: 0.625, h: 0.27, lean: -0.05, head: true, seed: 7 },
-  { x: 0.67, h: 0.22, lean: -0.035, head: false, seed: 8 },
-  { x: 0.705, h: 0.3, lean: -0.03, head: true, seed: 9 },
-  { x: 0.74, h: 0.2, lean: -0.02, head: true, seed: 10 },
+  // the far bank leaves a gap in its reeds where Pip sits and watches (x ~0.64)
+  { x: 0.552, h: 0.21, lean: -0.035, head: true, seed: 6 },
+  { x: 0.578, h: 0.15, lean: -0.05, head: false, seed: 7 },
+  { x: 0.712, h: 0.3, lean: -0.03, head: true, seed: 8 },
+  { x: 0.742, h: 0.22, lean: -0.02, head: true, seed: 9 },
+  { x: 0.772, h: 0.17, lean: -0.02, head: false, seed: 10 },
 ];
 
 /** Reeds, bulrushes and arching leaves rooted at `base` (stage t). */
@@ -87,8 +88,26 @@ export function drawLilies(out: CapsuleSink, waterY: number, time: number, calm:
 export function drawFirefly(glows: GlowSink, x: number, y: number, glow: number, index: number, time: number, calm: boolean): void {
   const blink = calm ? 1 : keyLoop(time + index * 0.73, 2.6, FIREFLY_BLINK);
   const a = glow * blink;
-  glows.push(x, y, 0.07, 0.32 * a);
-  glows.push(x, y, 0.024, 0.95 * a);
+  // 2.5x the old size: a soft halo, a bright body and a white-hot core
+  glows.push(x, y, 0.17, 0.3 * a);
+  glows.push(x, y, 0.06, 0.8 * a);
+  glows.push(x, y, 0.024, 1.0 * a);
+}
+
+/** Lamplight rippling on the water between two banks (the bridge tale's gap). */
+export function drawRipples(glows: GlowSink, s0: number, s1: number, waterY: number, time: number, calm: boolean, strength: number): void {
+  if (strength <= 0.02) return;
+  const n = 9;
+  for (let i = 0; i < n; i++) {
+    const u = (i + 0.5) / n;
+    const drift = calm ? 0 : Math.sin(time * 0.6 + i * 2.3) * 0.012;
+    const x = s0 + (s1 - s0) * u + drift;
+    const y = waterY + 0.012 + (calm ? 0 : Math.sin(time * 2.1 + i * 1.7) * 0.003) + (i % 3) * 0.009;
+    const tw = calm ? 0.8 : 0.55 + 0.45 * Math.sin(time * 3.1 + i * 1.9);
+    // a short horizontal glint: two overlapping dots
+    glows.push(x - 0.012, y, 0.016, 0.34 * tw * strength);
+    glows.push(x + 0.012, y, 0.016, 0.34 * tw * strength);
+  }
 }
 const FIREFLY_BLINK: readonly (readonly [number, number])[] = [
   [0, 1],

@@ -17,9 +17,12 @@ import { clamp, dist2, mulberry32, pointSegmentDistance } from './math.js';
 import { clamp01, easeInCubic, easeInOutSine } from './ease.js';
 import { PoseId } from './hand-features.js';
 import { Wolf, WolfState } from './wolf.js';
+import { COPY, Prompt } from './copy.js';
 
 export type SceneId = 'intro' | 'menu' | 'croc' | 'bridge' | 'wolf' | 'finale';
 export type TaleId = 'croc' | 'bridge' | 'wolf';
+/** A title card: one per tale, and the finale's. */
+export type TitleId = TaleId | 'finale';
 
 export type SoundEvent =
   | 'ignite'
@@ -46,7 +49,11 @@ export type SoundEvent =
   | 'scare'
   | 'curtain'
   | 'goodnight'
-  | 'ribbon';
+  | 'ribbon'
+  | 'chirp'
+  | 'perch'
+  | 'spark'
+  | 'lightsUp';
 
 export interface StoryEvent {
   type: SoundEvent;
@@ -56,7 +63,7 @@ export interface StoryEvent {
   value: number;
 }
 
-export type GhostPose = 'open' | 'rabbit' | 'mouth' | 'bridge';
+export type GhostPose = 'open' | 'rabbit' | 'mouth' | 'bridge' | 'point';
 
 export interface FireflyView {
   x: number;
@@ -128,7 +135,35 @@ export interface StageView {
     actor: number;
     /** Count of fireflies swallowed (the renderer starts a swallow glow when it changes). */
     gulps: number;
+    /** 0..1 how full it is: the swallowed fireflies keep glowing in its throat. */
+    full: number;
   };
+  /** The full crocodile drifting off down the river, its throat still glowing (the tale's close). */
+  nightLight: { visible: number; x: number; y: number; dir: number; glow: number };
+  /** The finale's paper bird. */
+  bird: {
+    visible: number;
+    x: number;
+    y: number;
+    dir: number;
+    /** True while it flies (wings beat), false when it stands. */
+    flying: boolean;
+    /** Increments on each landing (the renderer plays the settle bounce). */
+    landings: number;
+    /** 0..1 the lantern's spark it carries in its beak. */
+    carry: number;
+    /** Body tilt (radians, nose up > 0). */
+    tilt: number;
+  };
+  /**
+   * The lantern's spark crossing the room to the wall (finale): travel 0..1
+   * from the real lantern's flame to stage (s, t); < 0 = none.
+   */
+  spark: { travel: number; s: number; t: number };
+  /** Half-width of the bridge tale's gap (NaN when there is none): lit ripples play in it. */
+  gap: number;
+  /** 0..1 the lamplight brightens as your shadow grows big enough to scare the wolf. */
+  brighten: number;
   /** Celebration sparkles 0..1. */
   sparkle: number;
   /** Short caption; empty = none. */
@@ -160,8 +195,8 @@ export interface StageView {
   moon: { visible: number; s: number; t: number; r: number; glow: number };
   /** How big your shadow is vs. how big it needs to be (wolf tale HUD hint), 0..1+. */
   courage: number;
-  /** The wordless title card at the start of a tale ('' = none); t = seconds into it. */
-  title: { id: TaleId | ''; t: number };
+  /** The title card at the start of a tale or the finale ('' = none); t = seconds into it. */
+  title: { id: TitleId | ''; t: number };
   /** 0..1 how much of the scene's set is shown (it fades in as the title card leaves). */
   set: number;
   /** On-stage words (STORY_TEXT.md): one storyteller line at a time, and a hand prompt. */
@@ -170,8 +205,6 @@ export interface StageView {
   flare: number;
   /** 0..1 the wall trembles with the scare (decays fast). */
   tremble: number;
-  /** 0..1 the ring around the moon that fills as your shadow grows (wolf tale). */
-  courageRing: number;
 }
 
 export interface TextView {
@@ -191,41 +224,91 @@ export interface TextView {
   title: string;
 }
 
-/** The storyteller's lines and the prompts (verbatim from STORY_TEXT.md). */
-export const LINES = {
-  lit: 'Every wall is a stage, once the lantern is lit.',
-  found: 'There you are.',
-  pip: 'This is Pip. Pip is small, and the night is very large.',
-  choose: 'Choose a story.',
-  crocOpen1: 'Down by the river, the fireflies are dancing\u2026',
-  crocOpen2: '\u2026and someone is hungry.',
-  crocClose: 'Full at last, the crocodile drifts off to sleep.',
-  bridgeOpen: 'Pip wants to go home, but the bridge is broken.',
-  bridgePlank: 'A little help from the river.',
-  bridgeClose: 'Home by moonlight. Pip will tell everyone about you.',
-  wolfOpen: 'Something is moving in the tall grass\u2026',
-  wolfTwist: 'But the wolf only wanted to sing to the moon.',
-  wolfClose: 'Some shadows are only lonely.',
-  sleepy: 'The lantern is getting sleepy.',
-  thanks: 'Thank you for lending us your hands.',
-  goodnight: 'Goodnight.',
-} as const;
-
-export const PROMPTS = {
-  raise: ['Raise a hand into the light', 'Raise one hand between the lantern and the wall'],
-  rabbit: ['Two fingers up', 'Hold up two fingers, like rabbit ears'],
-  menu: ['', 'Rest your shadow on a lantern to open its story'],
-  snap: ['Open\u2026 and snap', 'Open your hand like jaws, then snap it shut on a firefly'],
-  bridge: ['Lay your hand flat. Be the bridge.', 'Hold your hand flat and sideways so its shadow spans the river'],
-  closer: ['Bring it closer to you', 'Bring your hand back toward you: its shadow grows bigger'],
-  big: ['Make your shadow big', 'Bring your hand back toward you, or raise both hands, to make your shadow big'],
-} as const;
-
-export const TITLES: Record<TaleId, string> = {
-  croc: 'I \u00b7 The Hungry River',
-  bridge: 'II \u00b7 The Broken Bridge',
-  wolf: 'III \u00b7 The Moon Wolf',
+/** Title-card words per card (from the copy table). */
+export const TITLES: Record<TitleId, string> = {
+  croc: COPY.TITLE_I,
+  bridge: COPY.TITLE_II,
+  wolf: COPY.TITLE_III,
+  finale: COPY.TITLE_F,
 };
+
+// ------------------------------------------------------------ silhouettes
+// Story silhouettes never overlap, and keep at least about one body-width
+// between them (the critic: Pip and the wolf merged into one blob). The
+// extents are the drawn puppets' (stage units at scale 1, facing +x).
+
+/** The rabbit puppet's drawing scale (its model is ~0.16 stage units tall at 1). */
+export const RABBIT_DRAW_SCALE = 1.55;
+export interface Extent {
+  /** Reach behind (tail) and in front (nose) of the origin. */
+  back: number;
+  front: number;
+  height: number;
+  /** Torso width: the "one body-width" of the spacing rule. */
+  body: number;
+}
+export const PIP_EXTENT: Extent = { back: 0.085 * RABBIT_DRAW_SCALE, front: 0.077 * RABBIT_DRAW_SCALE, height: 0.165 * RABBIT_DRAW_SCALE, body: 0.1 * RABBIT_DRAW_SCALE };
+/** The lanky wolf (render/wolf-puppet.ts), standing; rearing lifts its head but shortens its reach. */
+export const WOLF_EXTENT: Extent = { back: 0.24, front: 0.235, height: 0.31, body: 0.19 };
+/** The finale's paper bird (render/bird-puppet.ts, drawn at 1.8x its model). */
+export const BIRD_EXTENT: Extent = { back: 0.047 * 1.8, front: 0.041 * 1.8, height: 0.058 * 1.8, body: 0.05 * 1.8 };
+/** Where the bird's beak is, from its feet (facing +x): it carries the spark there. */
+export const BIRD_BEAK: readonly [number, number] = [0.04 * 1.8, 0.045 * 1.8];
+/** The full crocodile drifting off (head and back above the water line). */
+export const NIGHT_CROC_EXTENT: Extent = { back: 0.15 * 1.7, front: 0.156 * 1.7, height: 0.05 * 1.7, body: 0.2 * 1.7 };
+
+export interface SilhouetteBox {
+  id: 'pip' | 'wolf' | 'bird' | 'croc';
+  s0: number;
+  s1: number;
+  t0: number;
+  t1: number;
+  body: number;
+}
+
+function boxOf(id: SilhouetteBox['id'], e: Extent, x: number, y: number, dir: number, scale: number, out: SilhouetteBox, stretch = 1): void {
+  const front = e.front * scale * stretch;
+  const back = e.back * scale * stretch;
+  out.id = id;
+  out.s0 = dir >= 0 ? x - back : x - front;
+  out.s1 = dir >= 0 ? x + front : x + back;
+  out.t0 = y;
+  out.t1 = y + e.height * scale;
+  out.body = e.body * scale;
+}
+
+/**
+ * The story's paper characters currently on stage, as boxes (stage units).
+ * Fills `out` (grown as needed) and returns how many there are.
+ */
+export function silhouettes(v: StageView, out: SilhouetteBox[]): number {
+  let n = 0;
+  const next = (): SilhouetteBox => (out[n] ??= { id: 'pip', s0: 0, s1: 0, t0: 0, t1: 0, body: 0 });
+  const rv = v.rabbit;
+  if (rv.visible > 0.3) boxOf('pip', PIP_EXTENT, rv.x, rv.y, rv.dir, rv.scale, next()), n++;
+  const wv = v.wolf;
+  if (wv.visible > 0.3 && wv.state !== 'away') {
+    const stretch = wv.state === 'flee' ? 1.25 : 1;
+    boxOf('wolf', WOLF_EXTENT, wv.x, wv.y, wv.dir, wv.scale, next(), stretch), n++;
+  }
+  const bv = v.bird;
+  if (bv.visible > 0.3) boxOf('bird', BIRD_EXTENT, bv.x, bv.y, bv.dir, 1, next()), n++;
+  const nl = v.nightLight;
+  if (nl.visible > 0.3) boxOf('croc', NIGHT_CROC_EXTENT, nl.x, nl.y - 0.02, nl.dir, 1, next()), n++;
+  return n;
+}
+
+/** The gap the spacing rule asks for between two silhouettes: about one body-width (the smaller one's). */
+export function requiredGap(a: SilhouetteBox, b: SilhouetteBox): number {
+  return Math.min(a.body, b.body) * 0.9;
+}
+
+/** Horizontal or vertical clearance between two boxes (negative = they overlap). */
+export function clearance(a: SilhouetteBox, b: SilhouetteBox): number {
+  const gx = Math.max(a.s0 - b.s1, b.s0 - a.s1);
+  const gy = Math.max(a.t0 - b.t1, b.t0 - a.t1);
+  return Math.max(gx, gy);
+}
 
 /** A storyteller line stays up this long (STORY_TEXT.md: ~3.5 s, or 1 s per 6 words). */
 export function lineDuration(text: string): number {
@@ -309,7 +392,12 @@ function createView(): StageView {
     scenery,
     sceneryCount: 0,
     waterY: NaN,
-    croc: { visible: 0, eyeS: 0, eyeT: 0, upperS: 0, upperT: 0, lowerS: 0, lowerT: 0, open: 0, actor: -1, gulps: 0 },
+    croc: { visible: 0, eyeS: 0, eyeT: 0, upperS: 0, upperT: 0, lowerS: 0, lowerT: 0, open: 0, actor: -1, gulps: 0, full: 0 },
+    nightLight: { visible: 0, x: 0, y: 0, dir: -1, glow: 0 },
+    bird: { visible: 0, x: 0.9, y: 0.1, dir: -1, flying: true, landings: 0, carry: 0, tilt: 0 },
+    spark: { travel: -1, s: 0, t: 0 },
+    gap: NaN,
+    brighten: 0,
     sparkle: 0,
     caption: '',
     progress: 0,
@@ -322,7 +410,6 @@ function createView(): StageView {
     text: { line: '', lineAlpha: 0, lineId: 0, prompt: '', promptFull: '', promptAlpha: 0, title: '' },
     flare: 0,
     tremble: 0,
-    courageRing: 0,
   };
 }
 
@@ -403,13 +490,25 @@ export class Story {
   private promptWant = '';
   private promptWantFull = '';
 
-  /** Queues a storyteller line (one at a time; `hold` keeps it up until the scene changes). */
+  /**
+   * Queues a storyteller line (one at a time; `hold` keeps it up until the
+   * scene changes). An empty line (a beat the script leaves silent) is skipped.
+   */
   say(text: string, hold = false): void {
+    if (!text) return;
     this.lineQueue.push({ text, hold });
   }
 
+  /**
+   * True when no line is up or waiting (a held line does not count): scenes
+   * never cut while the storyteller is mid-line.
+   */
+  linesIdle(): boolean {
+    return this.lineQueue.length === 0 && (!this.view.text.line || this.lineHold);
+  }
+
   /** Asks for a hand prompt this frame ('' = none). Shown only while asked for. */
-  private ask(prompt: readonly [string, string] | null): void {
+  private ask(prompt: Prompt | null): void {
     this.promptWant = prompt ? prompt[0] : '';
     this.promptWantFull = prompt ? prompt[1] : '';
   }
@@ -430,7 +529,7 @@ export class Story {
       const next = this.lineQueue.shift()!;
       tv.line = next.text;
       tv.lineId++;
-      this.emit(next.text === LINES.goodnight ? 'goodnight' : 'ribbon', 0, 0.3);
+      this.emit(next.text === COPY.F5 && this.scene === 'finale' ? 'goodnight' : 'ribbon', 0, 0.3);
       tv.lineAlpha = 0;
       this.lineT = 0;
       this.lineHold = next.hold;
@@ -453,7 +552,10 @@ export class Story {
 
   private emit(type: SoundEvent, s = 0, t = 0, value = 0): void {
     this.events.push({ type, s, t, value });
+    if (type === 'taleComplete') this.talesPlayed++;
   }
+  /** Tales finished this evening (the hub counts the evening down: H1, H2, H3). */
+  talesPlayed = 0;
 
   private setBeat(beat: string): void {
     this.beat = beat;
@@ -485,25 +587,43 @@ export class Story {
     }
     this.setScenery(scene);
     const tale = scene === 'croc' || scene === 'bridge' || scene === 'wolf';
-    this.view.title.id = tale ? scene : '';
+    const carded = tale || scene === 'finale';
+    this.view.title.id = carded ? scene : '';
     this.view.title.t = 0;
     this.lineQueue.length = 0;
     this.finaleStarted = false;
-    // a held line (“Goodnight.”) ends with its scene and hands over to the next
-    if (this.lineHold) {
+    // after the finale the hub keeps holding "Goodnight." (no flicker between scenes)
+    const tv = this.view.text;
+    const keepGoodnight = scene === 'menu' && this.finaleSeen && this.lineHold && tv.line === COPY.F5;
+    // a held line ("Goodnight.") ends with its scene and hands over to the next
+    if (this.lineHold && !keepGoodnight) {
       this.lineHold = false;
       this.lineDur = 0;
     }
-    if (tale) this.lineDur = 0; // the previous scene's line leaves now
+    if (carded) this.lineDur = 0; // the previous scene's line leaves now
     this.ask(null);
     this.view.rabbit.scale = 1;
     this.view.rabbit.tremble = 0;
     this.view.wolf.scale = 1;
-    this.view.courageRing = 0;
+    this.view.brighten = 0;
+    this.view.nightLight.visible = 0;
+    this.view.bird.visible = 0;
+    this.view.bird.carry = 0;
+    this.view.spark.travel = -1;
+    this.view.gap = NaN;
+    this.view.croc.full = 0;
     this.saidOpen = false;
-    if (scene === 'menu') this.say(LINES.choose);
-    if (tale) this.emit('title', 0, 0, scene === 'croc' ? 0 : scene === 'bridge' ? 1 : 2);
-    this.view.set = tale ? 0 : 1;
+    this.said.clear();
+    if (scene === 'menu' && !keepGoodnight) {
+      if (this.finaleSeen) this.say(COPY.F5, true);
+      else {
+        const n = this.talesPlayed;
+        this.say(n === 0 ? COPY.H1 : n === 1 ? COPY.H2 : COPY.H3);
+      }
+    }
+    if (scene === 'menu' && this.view.flame < 0.5) this.emit('ignite');
+    if (carded) this.emit('title', 0, 0, scene === 'croc' ? 0 : scene === 'bridge' ? 1 : scene === 'wolf' ? 2 : 3);
+    this.view.set = carded ? 0 : 1;
     this.view.croc.actor = -1;
     switch (scene) {
       case 'intro':
@@ -520,7 +640,11 @@ export class Story {
         this.spawnTimer = 0;
         this.idleNoHand = 0;
         this.sinceChomp = 0;
+        // Pip, small, watching from the far-bank reeds (out of the firefly band)
+        this.rabbit.place(Story.CROC_PIP_X, GROUND_T, -1);
+        this.rabbit.restTime = 1e9;
         this.view.rabbit.visible = 0;
+        this.view.rabbit.scale = Story.CROC_PIP_SCALE;
         break;
       case 'bridge':
         this.round = 0;
@@ -534,29 +658,48 @@ export class Story {
         this.wolf.state = 'away';
         this.wolf.x = 1.05;
         this.wolf.y = GROUND_T;
-        this.wolf.stopX = 0.12;
-        this.wolf.singX = 0.18;
-        // in the middle third of the light, the moon clear of where the hand goes
-        this.rabbit.place(-0.3, GROUND_T, 1);
+        // Pip by its burrow with the moon rising right behind it: the wolf's
+        // walk toward the moon reads as a walk toward Pip
+        this.rabbit.place(Story.WOLF_PIP_X, GROUND_T, 1);
         this.rabbit.restTime = 1e9; // the rabbit sits tight by its burrow
+        this.view.rabbit.scale = Story.WOLF_RABBIT_SCALE;
+        this.wolf.stopX = this.wolfClearX(Story.WOLF_SCALE) + 0.01;
+        this.wolf.singX = this.wolf.stopX;
         this.view.burrow.visible = 1;
-        this.view.burrow.s = -0.47;
+        this.view.burrow.s = Story.WOLF_PIP_X - 0.25;
         this.view.burrow.t = GROUND_T;
-        this.view.moon.s = -0.44;
-        this.view.moon.t = 0.17; // below the storyteller's band
+        // just behind Pip's head (Pip faces the wolf)
+        this.view.moon.s = Story.WOLF_PIP_X + 0.04;
+        this.view.moon.t = Story.MOON_LOW;
+        this.view.moon.r = 0.1;
         this.setBeat('moonrise');
         break;
       case 'finale':
-        this.view.moon.s = 0.46;
-        this.view.moon.t = 0.18;
-        this.rabbit.place(-0.5, GROUND_T, 1);
-        this.rabbit.restTime = 0.5;
-        this.wolf.state = 'howl';
-        this.wolf.x = 0.32;
+        // Pip and the wolf under the moon; the bird flits in with nowhere to land
+        // low between them, under the storyteller's ribbon
+        this.view.moon.s = -0.06;
+        this.view.moon.t = -0.03;
+        this.view.moon.r = 0.075;
+        this.rabbit.place(Story.FINALE_PIP_X, GROUND_T, 1);
+        this.rabbit.restTime = 1e9;
+        this.wolf.state = 'rest';
+        this.wolf.x = Story.FINALE_WOLF_X;
         this.wolf.y = GROUND_T;
         this.wolf.dir = -1;
-        this.view.moon.visible = 1;
-        this.setBeat('bows');
+        this.wolf.vx = 0;
+        this.view.moon.visible = 0;
+        // it flutters in out of the dark, in the open air between them
+        this.view.bird.x = -0.02;
+        this.view.bird.y = 0.0;
+        this.view.bird.dir = -1;
+        this.view.bird.flying = true;
+        this.perch.hold = 0;
+        this.perch.lost = 0;
+        this.perch.actor = -1;
+        this.finaleWait = 0;
+        this.birdVX = 0;
+        this.birdVY = 0;
+        this.setBeat('flit');
         break;
     }
   }
@@ -697,10 +840,12 @@ export class Story {
     if (!this.saidOpen) {
       this.saidOpen = true;
       if (this.scene === 'croc') {
-        this.say(LINES.crocOpen1);
-        this.say(LINES.crocOpen2);
-      } else if (this.scene === 'bridge') this.say(LINES.bridgeOpen);
-      else if (this.scene === 'wolf') this.say(LINES.wolfOpen);
+        this.say(COPY.I1);
+        this.say(COPY.I2);
+      } else if (this.scene === 'bridge') {
+        this.say(COPY.II1);
+        this.say(COPY.II2);
+      } else if (this.scene === 'wolf') this.say(COPY.III1);
     }
     switch (this.scene) {
       case 'intro':
@@ -719,7 +864,7 @@ export class Story {
         this.updateWolf(dt, model);
         break;
       case 'finale':
-        this.updateFinale(dt);
+        this.updateFinale(dt, model);
         break;
     }
     this.syncWolfView();
@@ -745,7 +890,15 @@ export class Story {
     v.croc.visible = approach(v.croc.visible, 0, 6, dt);
     const out = (v.title.t - TITLE_IN - TITLE_HOLD) / TITLE_OUT;
     v.set = easeInOutSine(clamp01(out));
-    if (this.scene === 'bridge' || this.scene === 'wolf') v.rabbit.visible = v.set;
+    if (this.scene !== 'intro' && this.scene !== 'menu') v.rabbit.visible = v.set;
+    if (this.scene === 'finale') {
+      // Pip and the wolf are already sitting under the moon as the card leaves
+      this.wolf.state = 'rest';
+      v.wolf.scale = Story.FINALE_WOLF_SCALE;
+      v.moon.visible = v.set;
+      v.moon.glow = 0.8;
+      v.warmth = approach(v.warmth, 0.35, 2, dt);
+    }
     if (this.scene === 'wolf') v.moon.visible = 0;
     if (v.title.t >= TITLE_DURATION) {
       v.title.id = '';
@@ -780,6 +933,21 @@ export class Story {
     wv.stateTime = w.stateTime;
     wv.vx = w.vx;
     wv.visible = w.state === 'away' ? 0 : 1;
+  }
+
+  /** Pip's near edge plus one body-width of clear air: the wolf's nose stays beyond this. */
+  private wolfClearX(scale: number): number {
+    const pip = this.rabbit.x + PIP_EXTENT.front * this.view.rabbit.scale;
+    const gap = Math.min(PIP_EXTENT.body * this.view.rabbit.scale, WOLF_EXTENT.body * scale);
+    return pip + gap + WOLF_EXTENT.front * scale;
+  }
+
+  /** Lines said once per scene visit (by copy ID). */
+  private readonly said = new Set<string>();
+  private sayOnce(id: keyof typeof COPY, hold = false): void {
+    if (this.said.has(id)) return;
+    this.said.add(id);
+    this.say(COPY[id] as string, hold);
   }
 
   /** True when every tale has been completed at least once. */
@@ -850,7 +1018,7 @@ export class Story {
         v.flame = clamp((this.beatTime - 0.8) / 0.8, 0, 1);
         v.light = clamp((this.beatTime - 1.2) / 1.4, 0, 1);
         if (this.beatTime > 2.6) {
-          this.say(LINES.lit);
+          this.say(COPY.P1);
           this.setBeat('wave');
         }
         break;
@@ -863,11 +1031,11 @@ export class Story {
         v.ghost.t = 0.02;
         v.ghost.scale = 1;
         v.ghost.visible = approach(v.ghost.visible, actor ? 0 : 0.55, 3, dt);
-        this.ask(!actor && this.beatTime > PROMPT_WORDS_AFTER ? PROMPTS.raise : null);
+        this.ask(!actor && this.beatTime > PROMPT_WORDS_AFTER ? COPY.REACH : null);
         if (actor && actor.presentTime > 0.45) {
           this.emit('shadowFound', actor.centroidS, actor.centroidT);
           v.sparkle = 1;
-          this.say(LINES.found);
+          this.say(COPY.P2);
           this.ask(null);
           this.setBeat('play');
         } else if (this.beatTime > (this.settings.gentle ? 12 : 20)) {
@@ -889,7 +1057,7 @@ export class Story {
         v.ghost.t = target ? clamp(target.centroidT, -0.2, 0.25) : 0.05;
         v.ghost.scale = 0.9;
         v.ghost.visible = approach(v.ghost.visible, 0.5, 2, dt);
-        this.ask(!seen && this.beatTime > PROMPT_WORDS_AFTER ? PROMPTS.rabbit : null);
+        this.ask(!seen && this.beatTime > PROMPT_WORDS_AFTER ? COPY.EARS : null);
         // Assist: after a while the rabbit arrives anyway (no fail state).
         const assistAfter = this.settings.gentle ? 14 : 24;
         if (seen || this.beatTime > assistAfter) {
@@ -903,7 +1071,7 @@ export class Story {
           this.emit('rabbitBorn', s, t);
           v.sparkle = 1;
           this.ask(null);
-          this.say(LINES.pip);
+          this.say(COPY.P3);
           this.discover('rabbit');
           this.setBeat('born');
         }
@@ -934,6 +1102,7 @@ export class Story {
     const ev = r.update(dt, this.world, active);
     if (ev.hopped) this.emit('hop', r.x, r.y);
     if (ev.landed) this.emit('land', r.x, r.y, ev.landedOnShadow ? 1 : 0);
+    if (ev.landed && ev.landedOnShadow && this.scene === 'bridge') this.sayOnce('II4');
     if (ev.splashed) {
       this.stats.splashes++;
       this.emit('splash', r.x, r.y);
@@ -949,8 +1118,8 @@ export class Story {
   private updateMenu(dt: number, model: ShadowModel): void {
     const v = this.view;
     v.light = approach(v.light, 1, 3, dt);
-    v.dim = 1;
-    v.flame = 1;
+    v.dim = approach(v.dim, 1, 2, dt);
+    v.flame = approach(v.flame, 1, 3, dt);
     v.ghost.visible = approach(v.ghost.visible, 0, 4, dt);
     v.rabbit.visible = approach(v.rabbit.visible, 1, 4, dt);
     // The rabbit potters about slowly.
@@ -989,7 +1158,7 @@ export class Story {
     // The script has no words here; full captions explain after a long pause.
     let anyFill = false;
     for (const i of v.icons) if (i.fill > 0) anyFill = true;
-    this.ask(!anyFill && this.sceneTime > PROMPT_WORDS_AFTER + 2 ? PROMPTS.menu : null);
+    this.ask(!anyFill && this.sceneTime > PROMPT_WORDS_AFTER + 2 ? COPY.MENU : null);
   }
 
   // ------------------------------------------------------------ crocodile
@@ -1012,6 +1181,33 @@ export class Story {
     v.dim = 1;
     const actor = this.presentActor(model);
     const gentle = this.settings.gentle;
+    // Pip watches from the far-bank reeds, and ducks (ears flat) at every snap
+    v.rabbit.visible = approach(v.rabbit.visible, 1, 4, dt);
+    v.rabbit.scale = Story.CROC_PIP_SCALE;
+    v.rabbit.tremble = Math.max(0, v.rabbit.tremble - dt / 0.8);
+    this.stepRabbit(dt, false);
+    if (this.beat === 'glow') {
+      this.updateNightLight(dt);
+      // the last catch finishes its burst; any firefly still about fades away
+      for (const f of v.fireflies) {
+        if (f.eaten > 0) {
+          f.eaten = Math.min(1, f.eaten + dt * 1.6);
+          if (f.eaten >= 1) f.eaten = 0;
+        } else if (f.alive) {
+          f.glow = Math.max(0, f.glow - dt * 1.5);
+          if (f.glow <= 0) f.alive = false;
+        }
+      }
+      v.croc.visible = approach(v.croc.visible, 0, 2.5, dt);
+      v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
+      v.warmth = approach(v.warmth, 0.7, 2, dt);
+      // the tale ends once the crocodile has drifted off and the storyteller is done
+      if (this.beatTime > 5.2 && this.linesIdle()) {
+        v.warmth = 0;
+        this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
+      }
+      return;
+    }
     // Croc overlay follows the active actor's mouth.
     if (actor) {
       v.croc.visible = approach(v.croc.visible, 1, 6, dt);
@@ -1036,7 +1232,8 @@ export class Story {
     v.ghost.t = 0.12;
     v.ghost.scale = 0.85;
     v.ghost.visible = approach(v.ghost.visible, showGhost && !actor ? 0.5 : showGhost ? 0.25 : 0, 2.5, dt);
-    this.ask((this.beat === 'teach' || this.beat === 'feed') && stall > PROMPT_WORDS_AFTER ? PROMPTS.snap : null);
+    this.ask((this.beat === 'teach' || this.beat === 'feed') && stall > PROMPT_WORDS_AFTER ? COPY.SNAP : null);
+    if (actor && actor.mouth.open && this.beat === 'feed') this.sayOnce('I3');
 
     if (this.beat === 'teach') {
       if (this.beatTime > 1.2 && this.beatTime - dt <= 1.2) {
@@ -1097,6 +1294,9 @@ export class Story {
         this.stats.chomps++;
         this.sinceChomp = 0;
         this.emit('chomp', a.mouthS, a.mouthT);
+        // Pip ducks into the reeds
+        v.rabbit.tremble = 1;
+        this.rabbit.bounce(-2.6);
         const eatR = gentle ? 0.15 : 0.11;
         let gulped = 0;
         for (const f of v.fireflies) {
@@ -1111,7 +1311,9 @@ export class Story {
             this.progress.firefliesEaten++;
             this.emit('eat', f.x, f.y, this.eaten);
             v.croc.gulps++;
+            v.croc.full = Math.min(1, this.eaten / this.eatTarget);
             v.warmth = Math.min(1, this.eaten / this.eatTarget);
+            if (this.eaten === 1) this.sayOnce('I4');
           }
         }
       }
@@ -1122,15 +1324,33 @@ export class Story {
         v.sparkle = 1;
         this.progress.completed.croc = true;
         this.ask(null);
-        this.say(LINES.crocClose);
-      }
-    } else if (this.beat === 'glow') {
-      v.warmth = 1;
-      if (this.beatTime > 4.6) {
-        v.warmth = 0;
-        this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
+        this.sayOnce('I5');
+        // the full crocodile slips off your hand into the river, its throat still glowing
+        const nl = v.nightLight;
+        const from = actor ? actor.knuckleS : 0;
+        nl.x = clamp(from, -0.32, Story.CROC_PIP_X - PIP_EXTENT.back * Story.CROC_PIP_SCALE - NIGHT_CROC_EXTENT.back - 0.2);
+        nl.y = v.waterY + 0.006;
+        nl.dir = -1;
+        nl.visible = 0;
+        nl.glow = 1;
+        this.driftV = 0;
       }
     }
+  }
+
+  private driftV = 0;
+  /** The close of tale I: the full crocodile drifts off down the river, a night-light. */
+  private updateNightLight(dt: number): void {
+    const nl = this.view.nightLight;
+    const t = this.beatTime;
+    // surfaces (0.6 s), then drifts away downstream, easing up to speed
+    nl.visible = clamp01(t / 0.6) * clamp01((nl.x + 1.02) / 0.18);
+    if (t > 0.9) {
+      this.driftV = approach(this.driftV, 0.2, 1.2, dt);
+      nl.x -= this.driftV * dt;
+    }
+    nl.y = this.view.waterY + 0.006;
+    nl.glow = 0.85 + 0.15 * Math.sin(this.time * 2.1);
   }
 
   // --------------------------------------------------------------- bridge
@@ -1141,6 +1361,7 @@ export class Story {
     v.croc.visible = approach(v.croc.visible, 0, 6, dt);
     v.rabbit.visible = approach(v.rabbit.visible, 1, 5, dt);
     this.rabbit.restTime = 0.28;
+    v.gap = this.rounds[Math.min(this.round, this.rounds.length - 1)];
     if (this.beat === 'cross') {
       this.stepRabbit(dt, true);
       const r = this.rabbit;
@@ -1156,13 +1377,13 @@ export class Story {
       if (this.round === 2) v.ghost.scale *= 1 + 0.18 * (0.5 + 0.5 * Math.sin(this.time * 2.2));
       v.ghost.visible = approach(v.ghost.visible, needHelp ? 0.45 : 0, 2.5, dt);
       if (needHelp) this.waitTime += dt;
-      this.ask(needHelp && this.waitTime > PROMPT_WORDS_AFTER - 2.5 ? (this.round === 2 ? PROMPTS.closer : PROMPTS.bridge) : null);
+      this.ask(needHelp && this.waitTime > PROMPT_WORDS_AFTER - 2.5 ? (this.round === 2 ? COPY.CLOSER : COPY.BRIDGE) : null);
       if (!this.plank.active && !this.plank.done && this.waitTime > (this.settings.gentle ? 9 : 16)) {
         this.plank.active = true;
         this.plank.t = 0;
         this.plank.index = this.world.sceneryCount;
         this.stats.assists++;
-        this.say(LINES.bridgePlank);
+        this.sayOnce('II3');
         this.emit('whoosh', 0, GROUND_T);
       }
       if (this.plank.active) this.updatePlank(dt, g);
@@ -1202,7 +1423,7 @@ export class Story {
         if (this.round >= this.rounds.length) {
           this.progress.completed.bridge = true;
           this.emit('taleComplete');
-          this.say(LINES.bridgeClose);
+          this.sayOnce('II5');
           this.setBeat('end');
         } else {
           this.setupRound();
@@ -1212,7 +1433,7 @@ export class Story {
     } else if (this.beat === 'end') {
       v.warmth = approach(v.warmth, 0.6, 2, dt);
       v.rabbit.visible = 0;
-      if (this.beatTime > 4.0) {
+      if (this.beatTime > 4.0 && this.linesIdle()) {
         v.warmth = 0;
         this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
@@ -1220,15 +1441,30 @@ export class Story {
   }
 
   // ------------------------------------------------------------- moon wolf
-  // Staged big, in the middle of the light: the rabbit left by its burrow
-  // under the moon, the wolf stalking in from the right, your shadow above.
-  // One scare: as your shadow grows the wolf hesitates and the moon's ring
-  // fills; at the threshold it rears back, then bolts; the twist follows at once.
+  // Staged in the middle of the light: Pip by its burrow with the moon rising
+  // right behind it, the lanky wolf stalking in from the right toward them
+  // both, your shadow looming above. One scare, read in the scene itself:
+  // as your shadow grows the wolf's ears flatten, Pip trembles and the
+  // lamplight brightens; at the threshold it rears back, then bolts. Then the
+  // twist (III3) and the song (III4, III5), with time for every line.
   private readonly wolfThresholds = [1.25];
-  static readonly WOLF_SCALE = 1.55;
+  /** The lanky wolf: about 1.6x Pip's height. */
+  static readonly WOLF_SCALE = 1.3;
+  static readonly WOLF_RABBIT_SCALE = 1.0;
+  static readonly WOLF_PIP_X = -0.42;
+  /** Moonrise: from below Pip's feet to right behind Pip's head. */
+  static readonly MOON_LOW = -0.42;
+  static readonly MOON_UP = -0.1;
+  /** Tale I: Pip, small, in the far-bank reeds. */
+  static readonly CROC_PIP_X = 0.64;
+  static readonly CROC_PIP_SCALE = 0.6;
+  /** The finale: Pip and the wolf under the moon, the bird between them. */
+  static readonly FINALE_PIP_X = -0.47;
+  static readonly FINALE_WOLF_X = 0.45;
+  static readonly FINALE_WOLF_SCALE = 1.0;
   private twistSaid = false;
   private twistAt = 0;
-  static readonly WOLF_RABBIT_SCALE = 1.45;
+  private sang = false;
 
   /** Size the shadow must reach (gentle mode & assist lower it). */
   wolfThreshold(): number {
@@ -1248,7 +1484,9 @@ export class Story {
     v.rabbit.visible = approach(v.rabbit.visible, 1, 5, dt);
     v.rabbit.scale = Story.WOLF_RABBIT_SCALE;
     v.wolf.scale = Story.WOLF_SCALE;
+    // moonrise, right behind Pip
     v.moon.visible = approach(v.moon.visible, 1, 1.5, dt);
+    v.moon.t = Story.MOON_LOW + (Story.MOON_UP - Story.MOON_LOW) * easeInOutSine(clamp01(this.sceneTime / 3.4));
     v.moon.glow = approach(v.moon.glow, this.beat === 'howl' || this.beat === 'end' ? 1 : 0.5, 2, dt);
     this.stepRabbit(dt, false);
     const w = this.wolf;
@@ -1256,18 +1494,23 @@ export class Story {
     const need = this.wolfThreshold();
     v.courage = clamp(big / need, 0, 1.2);
     const stalking = w.state === 'prowl' || w.state === 'sit' || w.state === 'cower';
-    v.rabbit.tremble = approach(v.rabbit.tremble, this.beat === 'scare' && stalking && w.x < 0.5 ? 1 : 0, 4, dt);
-    v.courageRing = approach(v.courageRing, this.beat === 'scare' && w.state !== 'flee' && w.state !== 'away' ? 1 : 0, 4, dt);
+    // Pip trembles from the stalk until the song settles it (III5: "Pip stops shaking")
+    const settled = this.beat === 'end' || (this.beat === 'howl' && (v.text.line === COPY.III5 || (!COPY.III5 && this.sang)));
+    const shake = this.beat === 'scare' ? (stalking && w.x < 0.66 ? 1 : 0.5) : this.beat === 'howl' && !settled ? 0.45 : 0;
+    v.rabbit.tremble = approach(v.rabbit.tremble, shake, settled ? 1.6 : 4, dt);
+    // the lamplight brightens as your shadow grows toward what scares the wolf
+    v.brighten = approach(v.brighten, this.beat === 'scare' && stalking ? clamp01((v.courage - 0.55) / 0.45) : 0, 3, dt);
     switch (this.beat) {
       case 'moonrise':
         if (this.beatTime > 1.2) {
-          w.enter(0.66, 0.1);
+          w.enter(0.78, 0.1);
           this.setBeat('scare');
         }
         break;
       case 'scare': {
         this.roundTime += dt;
         const ev = w.update(dt, big >= need, v.courage);
+        if (w.x < 0.62 && w.state === 'prowl') this.sayOnce('III2');
         if (ev.growl) this.emit('growl', w.x, w.y);
         if (ev.whimper) this.emit('whimper', w.x, w.y);
         if (ev.reared) {
@@ -1288,6 +1531,7 @@ export class Story {
             w.befriend();
             this.twistSaid = false;
             this.twistAt = 0;
+            this.sang = false;
             this.setBeat('howl');
           }
         }
@@ -1295,11 +1539,11 @@ export class Story {
         const scaredNow = w.state === 'rear' || w.state === 'flee' || w.state === 'away';
         const stall = scaredNow ? 0 : this.roundTime;
         v.ghost.pose = 'open';
-        v.ghost.s = 0.3;
-        v.ghost.t = 0.1;
+        v.ghost.s = 0.42;
+        v.ghost.t = 0.12;
         v.ghost.scale = 1 + 0.5 * (0.5 + 0.5 * Math.sin(this.time * 1.6));
         v.ghost.visible = approach(v.ghost.visible, stall > PROMPT_PICTOGRAM_AFTER + 1 ? 0.3 : 0, 2, dt);
-        this.ask(stall > PROMPT_WORDS_AFTER + 6 ? PROMPTS.closer : stall > PROMPT_WORDS_AFTER ? PROMPTS.big : null);
+        this.ask(stall > PROMPT_WORDS_AFTER + 6 ? COPY.CLOSER : stall > PROMPT_WORDS_AFTER ? COPY.BIG : null);
         v.progress = scaredNow ? 1 : 0;
         break;
       }
@@ -1312,15 +1556,20 @@ export class Story {
           this.twistAt += dt;
           if (this.twistAt > 0.3) {
             this.twistSaid = true;
-            this.say(LINES.wolfTwist);
+            this.sayOnce('III3');
           }
         }
         if (ev.howl) {
           this.emit('howl', w.x, w.y);
           v.sparkle = 1;
-          this.say(LINES.wolfClose);
+          this.sang = true;
+          this.sayOnce('III4');
+          this.sayOnce('III5');
         }
-        if (w.state === 'howl' && w.stateTime > 6.8) {
+        // a second verse while the storyteller finishes
+        if (w.state === 'howl' && w.stateTime > 6.5 && w.stateTime - dt <= 6.5) this.emit('howl', w.x, w.y, 1);
+        // the song holds until every line has been read (III4 + III5 need ~8 s)
+        if (w.state === 'howl' && w.stateTime > 4 && this.linesIdle()) {
           this.progress.completed.wolf = true;
           this.emit('taleComplete');
           this.setBeat('end');
@@ -1329,60 +1578,291 @@ export class Story {
       }
       case 'end':
         w.update(dt, false);
-        if (this.beatTime > 1.2) this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
+        if (this.beatTime > 1.2 && this.linesIdle()) this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
         break;
     }
   }
 
-  /** Curtain call, once all three tales are done. */
+  // ------------------------------------------------------- the last light
+  // Pip and the wolf under the moon; a paper bird flits about with nowhere to
+  // land (F1) until you hold one finger up, very still. It lands on your
+  // finger's shadow (F2), flies to the heart of the lamplight where a spark
+  // from the real lantern meets it, and carries the light away (F3). The
+  // lantern dims, the pool fades and the room's dimming lifts (F4): your own
+  // room returns. "Goodnight." (F5) holds until you reach into the light again.
+
+  /** The finale has been seen (the hub then holds "Goodnight."). */
   finaleSeen = false;
-  /** The curtain call's opening (lines, fireflies) has run for this visit. */
+  /** The finale's opening (its first line) has run for this visit. */
   private finaleStarted = false;
-  private updateFinale(dt: number): void {
+  /** The pointing finger the bird is waiting for: hold time with hysteresis. */
+  private readonly perch = { hold: 0, lost: 0, actor: -1, tipS: 0, tipT: 0, rawS: 0, rawT: 0, speed: 0, fallback: false };
+  /** Seconds spent waiting for a finger this visit (the fallback's clock; never reset by a near-landing). */
+  private finaleWait = 0;
+  private birdVX = 0;
+  private birdVY = 0;
+  private wake = 0;
+  private chirpIn = 1.2;
+  /** Seconds a finger must be held still before the bird comes. */
+  static readonly PERCH_HOLD = 0.9;
+  /** Without a finger, the bird lands here on the stage line (between Pip and the wolf). */
+  static readonly BIRD_FALLBACK_X = -0.07;
+  /** Where the lantern's spark meets the bird: the heart of the lamplight. */
+  static readonly SPARK_S = 0.0;
+  static readonly SPARK_T = 0.02;
+
+  /** True while the story wants hand poses classified (the finale's pointing finger). */
+  get wantsPose(): boolean {
+    return this.scene === 'finale' && (this.beat === 'flit' || this.beat === 'approach' || this.beat === 'perched');
+  }
+
+  /**
+   * The finger the bird may land on: a hand pointing one finger (in gentle
+   * mode any open hand) or a rod puppet, held still. Stillness builds up a
+   * hold below 0.12 stage units/s and resets above 0.3 or after 0.4 s without
+   * the finger: brief tracking or pose flickers don't reset it.
+   */
+  private perchFinger(model: ShadowModel, dt: number): Actor | null {
+    const p = this.perch;
+    let best: Actor | null = null;
+    let idx = -1;
+    for (let i = 0; i < model.actors.length; i++) {
+      const a = model.actors[i];
+      if (!a.present || !this.actorInPool(a)) continue;
+      const ok = a.kind === 'rod' || a.pose === 'point' || (this.settings.gentle && a.pose !== 'fist' && a.pose !== 'none');
+      if (!ok) continue;
+      // keep the finger we were following
+      if (!best || i === p.actor) {
+        best = a;
+        idx = i;
+      }
+    }
+    if (best) {
+      if (idx === p.actor) {
+        // speed of the smoothed fingertip (~0.17 s): tracking jitter averages out, real motion doesn't
+        const ps = p.tipS;
+        const pt = p.tipT;
+        p.tipS = approach(p.tipS, best.tipS, 6, dt);
+        p.tipT = approach(p.tipT, best.tipT, 6, dt);
+        const sp = Math.hypot(p.tipS - ps, p.tipT - pt) / Math.max(dt, 1e-3);
+        p.speed = approach(p.speed, sp, 10, dt);
+      } else {
+        p.actor = idx;
+        p.speed = 0.5;
+        p.hold = 0;
+        p.tipS = best.tipS;
+        p.tipT = best.tipT;
+      }
+      p.rawS = best.tipS;
+      p.rawT = best.tipT;
+      p.lost = 0;
+    } else p.lost += dt;
+    if (best && p.speed < 0.12) p.hold += dt;
+    else if (p.speed > 0.3 || p.lost > 0.4) p.hold = 0;
+    return best && p.hold >= Story.PERCH_HOLD ? best : null;
+  }
+
+  /** Flies the bird toward a goal on a damped spring (curved, eased paths). */
+  private flyBird(gx: number, gy: number, stiff: number, dt: number): number {
+    const b = this.view.bird;
+    const zeta = 0.75;
+    const ax = stiff * stiff * (gx - b.x) - 2 * zeta * stiff * this.birdVX;
+    const ay = stiff * stiff * (gy - b.y) - 2 * zeta * stiff * this.birdVY;
+    this.birdVX += ax * dt;
+    this.birdVY += ay * dt;
+    const sp = Math.hypot(this.birdVX, this.birdVY);
+    if (sp > 0.7) {
+      this.birdVX *= 0.7 / sp;
+      this.birdVY *= 0.7 / sp;
+    }
+    b.x += this.birdVX * dt;
+    b.y += this.birdVY * dt;
+    b.flying = true;
+    if (Math.abs(this.birdVX) > 0.04) b.dir = this.birdVX > 0 ? 1 : -1;
+    b.tilt = approach(b.tilt, clamp(this.birdVY * 1.6, -0.45, 0.45), 8, dt);
+    return Math.hypot(gx - b.x, gy - b.y);
+  }
+
+  private updateFinale(dt: number, model: ShadowModel): void {
     const v = this.view;
-    v.light = 1;
-    v.dim = 1;
-    v.warmth = approach(v.warmth, 0.8, 1.5, dt);
-    v.moon.visible = 1;
-    v.moon.glow = 1;
+    const b = v.bird;
+    const p = this.perch;
+    v.wolf.scale = Story.FINALE_WOLF_SCALE;
+    v.rabbit.scale = 1;
     v.rabbit.visible = approach(v.rabbit.visible, 1, 4, dt);
-    this.stepRabbit(dt, true);
-    // fireflies drift in like stage lights; the storyteller's last lines (once)
+    if (this.beat !== 'lightsUp' && this.beat !== 'goodnight') v.moon.visible = approach(v.moon.visible, 1, 2, dt);
+    this.stepRabbit(dt, false);
+    this.wolf.update(dt, false);
     if (!this.finaleStarted) {
       this.finaleStarted = true;
       this.emit('curtain', 0, 0);
-      this.say(LINES.sleepy);
-      this.say(LINES.thanks);
-      this.say(LINES.goodnight, true);
-      for (let i = 0; i < 4; i++) {
-        const f = v.fireflies[i];
-        f.alive = true;
-        f.glow = 0;
-        f.x = -0.5 + i * 0.33;
-        f.y = 0.38;
-      }
-    }
-    for (let i = 0; i < v.fireflies.length; i++) {
-      const f = v.fireflies[i];
-      if (!f.alive) continue;
-      f.glow = Math.min(1, f.glow + dt);
-      f.x += Math.sin(this.time * 0.8 + i * 1.7) * 0.02 * dt;
-      f.y += Math.cos(this.time * 0.6 + i) * 0.015 * dt;
+      this.sayOnce('F1');
     }
     const t = this.beatTime;
-    if (t > 1.5 && t - dt <= 1.5) {
-      this.emit('bow', -0.2, GROUND_T);
-      this.rabbit.bounce(-4.5);
+    const lit = this.beat === 'flit' || this.beat === 'approach' || this.beat === 'perched' || this.beat === 'spark';
+    if (lit) {
+      v.light = 1;
+      v.dim = 1;
+      v.flame = 1;
+      v.warmth = approach(v.warmth, 0.35, 1.5, dt);
+      v.moon.glow = 0.8;
     }
-    if (t > 3.0 && t - dt <= 3.0) {
-      this.emit('howl', this.wolf.x, GROUND_T);
-      this.wolf.crouch = 0.9;
-    }
-    v.sparkle = t > 1.5 && t < 6 ? 1 : v.sparkle;
-    if (t > 15) {
-      this.finaleSeen = true;
-      v.warmth = 0;
-      this.requestScene('menu');
+    switch (this.beat) {
+      case 'flit': {
+        // nowhere to land: darts about the open air between Pip and the wolf,
+        // under the storyteller's ribbon and clear of them both
+        b.visible = approach(b.visible, 1, 2, dt);
+        const ph = this.time * 0.75;
+        const tx = -0.075 + 0.08 * Math.sin(ph) + 0.02 * Math.sin(ph * 3.1 + 1);
+        const ty = -0.06 + 0.07 * Math.sin(ph * 1.6 + 0.5) + 0.015 * Math.sin(ph * 4.3);
+        this.flyBird(tx, ty, 2.4, dt);
+        this.chirpIn -= dt;
+        if (this.chirpIn <= 0) {
+          this.chirpIn = 2.2 + this.rng() * 1.6;
+          this.emit('chirp', b.x, b.y);
+        }
+        const finger = this.perchFinger(model, dt);
+        // the pictogram (one pointing finger) after a pause, the words later
+        v.ghost.pose = 'point';
+        v.ghost.s = 0.0;
+        v.ghost.t = -0.02;
+        v.ghost.scale = 0.85;
+        const stall = p.hold > 0 ? 0 : t;
+        v.ghost.visible = approach(v.ghost.visible, stall > PROMPT_PICTOGRAM_AFTER ? 0.4 : 0, 2.5, dt);
+        this.ask(stall > PROMPT_WORDS_AFTER ? COPY.FINGER : null);
+        this.finaleWait += dt;
+        const fallbackAfter = this.settings.gentle ? 14 : 20;
+        if (finger || this.finaleWait > fallbackAfter) {
+          p.fallback = !finger;
+          if (!finger) this.stats.assists++;
+          this.ask(null);
+          this.setBeat('approach');
+        }
+        break;
+      }
+      case 'approach': {
+        v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
+        let gx = Story.BIRD_FALLBACK_X;
+        let gy = GROUND_T + 0.002;
+        if (!p.fallback) {
+          this.perchFinger(model, dt);
+          if (p.lost > 0.8) {
+            // the finger went away: back to flitting about
+            p.hold = 0;
+            this.setBeat('flit');
+            break;
+          }
+          gx = p.rawS;
+          gy = p.rawT + 0.003;
+        } else if (Math.abs(b.x - gx) > 0.04) {
+          // to the stage line: stay up in the air until right above the spot, then drop in
+          gy = Math.max(gy, -0.04);
+        }
+        // an eased glide that tightens as it nears the perch
+        const d = this.flyBird(gx, gy, 2.6 + 5 * clamp01(t / 1.3), dt);
+        if (t > 6 && d > 0.05 && !p.fallback) {
+          // it could not catch up with the finger: back to flitting about
+          p.hold = 0;
+          this.setBeat('flit');
+          break;
+        }
+        if ((d < 0.01 && t > 0.6) || (t > 3 && d < 0.05)) {
+          b.x = gx;
+          b.y = gy;
+          this.birdVX = this.birdVY = 0;
+          b.flying = false;
+          b.landings++;
+          b.tilt = 0;
+          this.emit('perch', gx, gy);
+          this.sayOnce('F2');
+          // Pip is delighted
+          this.rabbit.bounce(-3.5);
+          this.setBeat('perched');
+        }
+        break;
+      }
+      case 'perched': {
+        // stands on the fingertip, following it softly, and looks about
+        if (!p.fallback) {
+          this.perchFinger(model, dt);
+          if (p.lost < 0.5) {
+            b.x = approach(b.x, p.rawS, 14, dt);
+            b.y = approach(b.y, p.rawT + 0.003, 14, dt);
+          }
+        }
+        b.flying = false;
+        b.tilt = approach(b.tilt, 0, 6, dt);
+        if ((t > 1.5 && t - dt <= 1.5) || (t > 2.6 && t - dt <= 2.6)) b.dir = -b.dir;
+        if (t > 1.0 && t - dt <= 1.0) this.emit('chirp', b.x, b.y, 1);
+        const gone = !p.fallback && p.lost > 1.0 && t > 1.5;
+        if ((t > 3.0 && this.linesIdle()) || t > 10 || gone) {
+          this.setBeat('spark');
+          v.spark.s = Story.SPARK_S;
+          v.spark.t = Story.SPARK_T;
+          v.spark.travel = 0;
+          this.emit('spark', Story.SPARK_S, Story.SPARK_T);
+        }
+        break;
+      }
+      case 'spark': {
+        // a spark leaves the real lantern and crosses the room; the bird flies to meet it
+        v.spark.travel = Math.min(1, t / 1.5);
+        // faces the spark, its beak (not its feet) where the spark arrives
+        const dir = b.x > Story.SPARK_S + 0.01 ? -1 : 1;
+        this.flyBird(Story.SPARK_S - dir * BIRD_BEAK[0], Story.SPARK_T - BIRD_BEAK[1], 3.2, dt);
+        b.dir = dir;
+        if (t >= 1.5) {
+          v.spark.travel = -1;
+          b.carry = 1;
+          this.sayOnce('F3');
+          this.emit('chirp', b.x, b.y, 2);
+          this.setBeat('away');
+        }
+        break;
+      }
+      case 'away': {
+        // off it goes with the light, up and out of the pool; the lantern dims
+        // up first (clear over Pip), then away to the left
+        this.flyBird(t < 0.7 ? Story.SPARK_S - 0.08 : -1.1, 0.02, 2.0, dt);
+        v.flame = approach(v.flame, 0.2, 0.8, dt);
+        v.light = approach(v.light, 0.45, 0.6, dt);
+        v.warmth = approach(v.warmth, 0, 1, dt);
+        if (b.x < -0.98 || t > 5) {
+          b.visible = 0;
+          b.carry = 0;
+          this.sayOnce('F4');
+          this.emit('lightsUp');
+          this.setBeat('lightsUp');
+        }
+        break;
+      }
+      case 'lightsUp': {
+        // the pool fades and the room's dimming lifts: the real room returns
+        const u = easeInOutSine(clamp01(t / 3.5));
+        v.light = Math.min(v.light, 0.45 * (1 - u));
+        v.moon.visible = Math.min(v.moon.visible, 1 - u);
+        v.dim = 1 - u;
+        v.flame = approach(v.flame, 0.14, 0.8, dt);
+        v.warmth = 0;
+        if (t > 3.5 && this.linesIdle()) {
+          this.finaleSeen = true;
+          this.say(COPY.F5, true);
+          this.setBeat('goodnight');
+          this.wake = 0;
+        }
+        break;
+      }
+      case 'goodnight': {
+        v.light = 0;
+        v.dim = 0;
+        v.moon.visible = 0;
+        v.flame = approach(v.flame, 0.14, 0.8, dt);
+        // the stories wake again when you reach into the lantern's light
+        const a = this.presentActor(model);
+        this.wake = a ? this.wake + dt : 0;
+        if (t > 5 && this.wake > 1.2) this.requestScene('menu');
+        break;
+      }
     }
   }
 

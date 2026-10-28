@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ShadowModel, Actor } from '../src/core/shadow-model.js';
 import { Story, GROUND_T, createProgress, DEFAULT_STORY_SETTINGS } from '../src/core/story.js';
 import { PoseId } from '../src/core/hand-features.js';
+import { COPY } from '../src/core/copy.js';
 
 /**
  * A puppeteer that drives the ShadowModel directly (as the real build step
@@ -212,48 +213,21 @@ describe("story: rabbit's bridge", () => {
     const ev = run(story, model, 16); // title card, the rabbit waits at the edge, then the prompt
     expect(ev).not.toContain('splash');
     expect(story.view.ghost.visible).toBeGreaterThan(0.2);
-    expect(story.view.text.prompt).toBe('Lay your hand flat. Be the bridge.');
-  });
-});
-
-describe('story: the storyteller', () => {
-  it('the curtain call says each line once, then hands over to the menu', () => {
-    const progress = createProgress();
-    progress.completed.croc = progress.completed.bridge = progress.completed.wolf = true;
-    const model = new ShadowModel();
-    const story = new Story(DEFAULT_STORY_SETTINGS, progress);
-    story.enter('wolf');
-    story.enter('finale');
-    const seen: string[] = [];
-    let lastId = -1;
-    for (let i = 0; i < 72 * 26; i++) {
-      story.update(1 / 72, model);
-      const tv = story.view.text;
-      if (tv.line && tv.lineId !== lastId) {
-        lastId = tv.lineId;
-        seen.push(tv.line);
-      }
-    }
-    expect(seen.filter((l) => l === 'The lantern is getting sleepy.').length).toBe(1);
-    expect(seen.filter((l) => l === 'Thank you for lending us your hands.').length).toBe(1);
-    expect(seen).toContain('Goodnight.');
-    expect(story.scene).toBe('menu');
-    // Goodnight ends with the curtain call; the menu's own line follows
-    expect(seen[seen.length - 1]).toBe('Choose a story.');
+    expect(story.view.text.prompt).toBe(COPY.BRIDGE[0]);
   });
 });
 
 describe('story: title cards', () => {
   it('each tale opens with a wordless title card, then its set fades in', () => {
     const model = new ShadowModel();
-    for (const id of ['croc', 'bridge', 'wolf'] as const) {
+    for (const id of ['croc', 'bridge', 'wolf', 'finale'] as const) {
       const story = new Story();
       story.enter(id);
       expect(story.view.title.id).toBe(id);
       expect(story.view.set).toBe(0);
       run(story, model, 1.0);
       expect(story.view.title.id).toBe(id);
-      expect(story.view.text.title).toMatch(/^I+ · The /);
+      expect(story.view.text.title).toMatch(id === 'finale' ? /^The Last Light$/ : /^I+ · The /);
       run(story, model, 2.2);
       expect(story.view.title.id).toBe('');
       expect(story.view.set).toBe(1);
@@ -383,8 +357,8 @@ describe('story: the moon wolf', () => {
     expect(ev.filter((e) => e === 'wolfFlee').length).toBe(1);
     expect(ev).toContain('howl');
     expect(story.progress.completed.wolf).toBe(true);
-    // staged as one beat: the whole tale (with its title card) stays short
-    expect(story.time).toBeLessThan(26);
+    // staged as one beat: the whole tale (title card, five lines read in full) stays short
+    expect(story.time).toBeLessThan(34);
   });
 
   it('with no help the wolf only sits by the rabbit (no harm) and the hint appears', () => {
@@ -426,7 +400,7 @@ describe('story: the moon wolf', () => {
     expect(story.bigness(model)).toBeCloseTo(1.25, 5);
   });
 
-  it('after all three tales the curtain call plays once, then the menu', () => {
+  it('after all three tales the finale plays once, then rests on Goodnight until you reach in', () => {
     const progress = createProgress();
     progress.completed.croc = true;
     progress.completed.bridge = true;
@@ -438,6 +412,7 @@ describe('story: the moon wolf', () => {
     const ev: string[] = [];
     for (let i = 0; i < 72 * 150; i++) {
       if (story.scene === 'wolf' && ['prowl', 'cower', 'sit'].includes(story.wolf.state)) big(hand, 1.8);
+      else if (story.scene === 'finale' && story.beat === 'goodnight' && story.beatTime > 6) hand.set(0, 0);
       else hand.hide();
       story.update(1 / 72, model);
       scenes.add(story.scene);
@@ -445,8 +420,12 @@ describe('story: the moon wolf', () => {
       if (story.scene === 'menu' && scenes.has('finale')) break;
     }
     expect(scenes.has('finale')).toBe(true);
-    expect(ev).toContain('bow');
+    expect(ev).toContain('perch');
+    expect(ev).toContain('spark');
     expect(story.scene).toBe('menu');
     expect(story.finaleSeen).toBe(true);
+    // the hub keeps holding "Goodnight."
+    run(story, model, 3, () => hand.hide());
+    expect(story.view.text.line).toBe(COPY.F5);
   });
 });

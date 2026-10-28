@@ -1,23 +1,51 @@
 /**
- * The shadow wolf: an articulated paper cut-out (body, head, ears, tail and
- * four legs on pivots), animated procedurally for prowling, cowering, fleeing,
- * sitting and howling. Drawn into the shadow stage's cut-out channel, with a
- * cut-out eye that lets the lamplight through.
+ * The shadow wolf: a lanky paper cut-out in Pip's round paper-cut language
+ * (smooth curves, no hard corners): long legs, a deep chest and tucked
+ * waist, a long snout, tall ears and a big brush tail, each part on its own
+ * pivot. About 0.31 stage units tall at scale 1 (Pip is ~0.26): the wolf tale
+ * stages it at ~1.6x Pip's height. Animated procedurally for prowling,
+ * cowering, rearing, fleeing, sitting, resting and howling, with a cut-out eye
+ * that lets the lamplight through. Extents: core/story.ts WOLF_EXTENT.
  */
-import { EllipseCurve, Group, Mesh, Shape, ShapeGeometry, Vector2 } from '@iwsdk/core';
+import { Group, Mesh, ShapeGeometry } from '@iwsdk/core';
 import type { WolfState } from '../core/wolf.js';
 import { CH_CUTOUT, CH_HOLE, createFlatMaterial } from './materials.js';
 import { Spring } from '../core/ease.js';
+import { circleShape, pathShapes } from './paths.js';
 
-function ellipse(cx: number, cy: number, rx: number, ry: number, rot = 0, seg = 40): Shape {
-  const s = new Shape();
-  s.setFromPoints(new EllipseCurve(cx, cy, rx, ry, 0, Math.PI * 2, false, rot).getPoints(seg));
-  return s;
-}
+// ---- the parts (model units, origin at the feet, facing +x)
+const TORSO =
+  'M -0.098 0.178 Q -0.02 0.19 0.05 0.193 Q 0.098 0.192 0.114 0.166 Q 0.124 0.13 0.09 0.106 ' +
+  'Q 0.062 0.096 0.034 0.116 Q -0.02 0.126 -0.064 0.12 Q -0.106 0.116 -0.115 0.146 Q -0.118 0.172 -0.098 0.178 Z';
+/** The neck rises from the withers to the head's pivot. */
+const NECK = 'M 0.046 0.186 Q 0.078 0.214 0.1 0.238 Q 0.122 0.236 0.134 0.222 Q 0.128 0.18 0.116 0.15 Q 0.09 0.17 0.046 0.186 Z';
+// head parts, relative to the head pivot (at the top of the neck)
+const SKULL = 'M -0.026 0.012 Q -0.022 0.036 0.006 0.04 Q 0.034 0.04 0.044 0.024 Q 0.05 0.008 0.04 -0.008 Q 0.02 -0.02 -0.006 -0.016 Q -0.03 -0.008 -0.026 0.012 Z';
+const SNOUT =
+  'M 0.026 0.031 Q 0.064 0.026 0.104 0.01 Q 0.119 0.004 0.118 -0.005 Q 0.114 -0.012 0.1 -0.011 ' +
+  'Q 0.064 -0.008 0.028 -0.012 Z';
+const JAW = 'M 0.006 -0.008 Q 0.044 -0.024 0.084 -0.016 Q 0.06 -0.004 0.012 0.004 Z';
+const RUFF = 'M -0.018 0.024 Q -0.036 0.006 -0.03 -0.02 Q -0.02 -0.014 -0.014 -0.026 Q -0.004 -0.012 0.004 -0.004 Z';
+// ears on their own pivot (flatten back when scared)
+const EARS =
+  'M -0.022 0.0 Q -0.022 0.03 -0.01 0.052 Q -0.002 0.05 0.002 0.02 Z ' +
+  'M -0.004 0.002 Q -0.002 0.034 0.011 0.057 Q 0.021 0.052 0.023 0.006 Z';
+// the brush tail on its pivot at the rump
+const TAIL =
+  'M 0.004 0.009 Q -0.04 0.03 -0.09 0.018 Q -0.124 0.008 -0.136 -0.014 Q -0.14 -0.03 -0.124 -0.034 ' +
+  'Q -0.112 -0.026 -0.104 -0.032 Q -0.084 -0.022 -0.072 -0.026 Q -0.04 -0.014 0.006 -0.009 Z';
+// legs hang from their pivots (shoulder / hip)
+const FRONT_LEG =
+  'M -0.013 0.012 Q -0.012 -0.07 -0.008 -0.118 Q -0.008 -0.134 0.004 -0.135 L 0.018 -0.135 ' +
+  'Q 0.025 -0.13 0.015 -0.123 Q 0.007 -0.119 0.006 -0.108 Q 0.009 -0.06 0.013 0.012 Z';
+const HIND_LEG =
+  'M -0.024 0.014 Q -0.032 -0.03 -0.014 -0.062 Q -0.017 -0.1 -0.013 -0.12 Q -0.013 -0.135 0.0 -0.135 L 0.014 -0.135 ' +
+  'Q 0.021 -0.13 0.011 -0.123 Q 0.004 -0.119 0.004 -0.107 Q 0.004 -0.08 0.012 -0.052 Q 0.026 -0.02 0.02 0.014 Z';
 
-function poly(pts: [number, number][]): Shape {
-  return new Shape(pts.map(([x, y]) => new Vector2(x, y)));
-}
+const HIP_X = -0.08;
+const HIP_Y = 0.132;
+const HEAD_X = 0.115;
+const HEAD_Y = 0.228;
 
 export class WolfPuppet {
   readonly group = new Group();
@@ -30,93 +58,34 @@ export class WolfPuppet {
   constructor() {
     const cut = createFlatMaterial(CH_CUTOUT);
     const hole = createFlatMaterial(CH_HOLE);
+    const geo = (d: string): ShapeGeometry => new ShapeGeometry(pathShapes(d), 8);
     this.group.add(this.body);
-    this.body.add(
-      new Mesh(
-        new ShapeGeometry(
-          [
-            ellipse(0, 0.105, 0.1, 0.042),
-            ellipse(0.068, 0.112, 0.05, 0.05),
-            ellipse(-0.07, 0.1, 0.04, 0.038),
-            // scruffy back fur
-            poly([
-              [-0.06, 0.135],
-              [-0.03, 0.158],
-              [0.0, 0.142],
-              [0.03, 0.162],
-              [0.06, 0.145],
-              [0.02, 0.12],
-            ]),
-          ],
-          4,
-        ),
-        cut,
-      ),
-    );
-    // head on a neck pivot
-    this.head.position.set(0.095, 0.135, 0);
-    this.head.add(
-      new Mesh(
-        new ShapeGeometry(
-          [
-            ellipse(0.03, 0.03, 0.04, 0.03),
-            poly([
-              [0.04, 0.045],
-              [0.105, 0.028],
-              [0.108, 0.018],
-              [0.098, 0.01],
-              [0.045, 0.008],
-            ]),
-          ],
-          4,
-        ),
-        cut,
-      ),
-    );
-    // ears on their own pivot: up when bold, flat back when scared
-    this.ears.position.set(0.02, 0.048, 0);
-    this.ears.add(
-      new Mesh(
-        new ShapeGeometry(
-          [
-            poly([
-              [-0.015, -0.003],
-              [-0.002, 0.05],
-              [0.015, 0.004],
-            ]),
-            poly([
-              [0.008, 0.002],
-              [0.028, 0.046],
-              [0.038, 0.0],
-            ]),
-          ],
-          4,
-        ),
-        cut,
-      ),
-    );
+    this.body.add(new Mesh(geo(TORSO + ' ' + NECK), cut));
+    this.head.position.set(HEAD_X, HEAD_Y, 0);
+    this.head.add(new Mesh(geo(SKULL + ' ' + SNOUT + ' ' + JAW + ' ' + RUFF), cut));
+    this.ears.position.set(0.0, 0.03, 0);
+    this.ears.add(new Mesh(geo(EARS), cut));
     this.head.add(this.ears);
-    this.head.add(new Mesh(new ShapeGeometry(ellipse(0.05, 0.038, 0.0055, 0.0045), 4), hole));
+    // an almond eye, slanting up toward the snout
+    const eye = new Mesh(new ShapeGeometry(circleShape(0, 0, 1, 16), 1), hole);
+    eye.position.set(0.024, 0.017, 0);
+    eye.scale.set(0.0075, 0.0042, 1);
+    eye.rotation.z = 0.32;
+    this.head.add(eye);
     this.body.add(this.head);
-    // bushy tail
-    this.tail.position.set(-0.098, 0.118, 0);
-    this.tail.add(new Mesh(new ShapeGeometry(ellipse(-0.06, 0.012, 0.068, 0.02, 0.35), 4), cut));
+    this.tail.position.set(-0.108, 0.168, 0);
+    this.tail.add(new Mesh(geo(TAIL), cut));
     this.body.add(this.tail);
     // legs: front pair and back pair, pivoting at the shoulder/hip
-    for (const [x, near] of [
-      [0.07, true],
-      [0.055, false],
-      [-0.07, true],
-      [-0.085, false],
-    ] as [number, boolean][]) {
+    for (const [x, hind, near] of [
+      [0.07, false, true],
+      [0.052, false, false],
+      [HIP_X + 0.004, true, true],
+      [HIP_X - 0.014, true, false],
+    ] as [number, boolean, boolean][]) {
       const leg = new Group();
-      leg.position.set(x, 0.085, near ? 0 : -0.001);
-      leg.add(
-        new Mesh(
-          new ShapeGeometry([ellipse(0, -0.04, 0.0115, 0.045), ellipse(0.008, -0.083, 0.014, 0.007)], 4),
-          cut,
-        ),
-      );
+      leg.position.set(x, 0.135, near ? 0 : -0.001);
+      leg.add(new Mesh(geo(hind ? HIND_LEG : FRONT_LEG), cut));
       this.legs.push(leg);
       this.body.add(leg);
     }
@@ -138,8 +107,8 @@ export class WolfPuppet {
   private wasVisible = false;
 
   /**
-   * @param scale drawing scale (1.15 = the menu/finale wolf; the wolf tale stages it bigger)
-   * @param hesitate 0..1 how much it hesitates (leans back, ears back)
+   * @param scale drawing scale (1 = ~0.31 stage units tall)
+   * @param hesitate 0..1 how much it hesitates (leans back, ears flatten)
    * @param vx its speed (it stretches as it bolts)
    */
   update(
@@ -151,7 +120,7 @@ export class WolfPuppet {
     phase: number,
     visible: number,
     time: number,
-    scale = 1.15,
+    scale = 1,
     hesitate = 0,
     vx = 0,
   ): void {
@@ -164,73 +133,81 @@ export class WolfPuppet {
     this.lastTime = time;
     this.group.position.set(x, y, 0);
     const walking = state === 'prowl' || state === 'flee' || state === 'return';
-    const sitting = state === 'sit' || state === 'howl';
+    const sitting = state === 'sit' || state === 'howl' || state === 'rest';
     const cower = state === 'cower';
     const rear = state === 'rear';
     const stalk = state === 'prowl';
     // bolting: stretched long and low (squash & stretch), from its speed
     const stretch = this.sStretch.update(state === 'flee' ? Math.min(1, Math.abs(vx) / 1.1) : 0, dt);
     const k = scale;
-    this.group.scale.set(dir * k * (1 + 0.24 * stretch), k * (1 - 0.13 * stretch), 1);
+    this.group.scale.set(dir * k * (1 + 0.2 * stretch), k * (1 - 0.1 * stretch), 1);
     const headT =
       state === 'howl'
-        ? 0.68 + Math.sin(time * 2.2) * 0.05
-        : rear
-          ? 0.5
-          : cower
-            ? -0.45 * crouch
-            : sitting
-              ? -0.32
-              : stalk
-                ? -0.2 + 0.32 * hesitate + Math.sin(time * 1.7) * 0.03
-                : Math.sin(time * 1.7) * 0.04;
+        ? 0.95 + Math.sin(time * 2.2) * 0.05
+        : state === 'rest'
+          ? -0.12 + Math.sin(time * 0.9) * 0.03
+          : rear
+            ? 0.42
+            : cower
+              ? -0.5 * crouch
+              : sitting
+                ? -0.38
+                : stalk
+                  ? -0.28 + 0.3 * hesitate + Math.sin(time * 1.7) * 0.03
+                  : Math.sin(time * 1.7) * 0.04;
     const tailT = rear
-      ? -1.15
+      ? -1.0
       : cower
-        ? -1.1 * crouch
+        ? -0.95 * crouch
         : state === 'flee'
-          ? 0.35 + Math.sin(phase * 2) * 0.1
+          ? 0.3 + Math.sin(phase * 2) * 0.1
           : sitting
-            ? -0.5
+            ? -0.7 + Math.sin(time * 1.3) * 0.06
             : stalk
-              ? -0.38 - 0.4 * hesitate + Math.sin(time * 2.4) * 0.05
-              : 0.25 + Math.sin(time * 2.4) * 0.12;
-    const bodyRotT = sitting ? 0.32 : cower ? -0.06 : stalk ? 0.1 * hesitate : 0;
-    const bodyYT = -0.028 * crouch + (walking ? Math.abs(Math.sin(phase)) * 0.004 : 0);
-    // ears: up and alert while stalking, flat back as it gets scared
-    const earsT = rear || cower || state === 'flee' ? -1.0 : stalk ? -0.85 * hesitate : state === 'howl' ? 0.1 : 0;
+              ? -0.2 - 0.6 * hesitate + Math.sin(time * 2.4) * 0.05
+              : 0.15 + Math.sin(time * 2.4) * 0.1;
+    // ears: up and alert while stalking, flattening back as your shadow grows
+    const earsT = rear || cower || state === 'flee' ? -1.15 : stalk ? -1.0 * hesitate : state === 'howl' ? 0.08 : 0;
     this.ears.rotation.z = this.sEars.update(earsT, dt);
-    // rearing up on its hind legs (held anticipation before the bolt)
-    const rearAmt = this.sRear.update(rear ? 1 : 0, dt);
+    const bodyRotT = stalk ? -0.04 + 0.12 * hesitate : cower ? -0.08 : 0;
+    const bodyYT = -0.02 * crouch + (walking ? Math.abs(Math.sin(phase)) * 0.004 : 0);
     if (!this.wasVisible) {
       // appearing: start in pose, no blend from a stale one
-      this.sSwing.snap(walking ? 0.38 : 0);
+      this.sSwing.snap(walking ? 0.34 : 0);
       this.sSit.snap(sitting ? 1 : 0);
       this.sHead.snap(headT);
       this.sTail.snap(tailT);
       this.sBodyRot.snap(bodyRotT);
       this.sBodyY.snap(bodyYT);
+      this.sRear.snap(rear ? 1 : 0);
       this.wasVisible = true;
     }
-    const amp = this.sSwing.update(walking ? (state === 'flee' ? 0.7 : 0.38) : 0, dt);
+    // rearing up on its hind legs (held anticipation before the bolt)
+    const rearAmt = this.sRear.update(rear ? 1 : 0, dt);
+    const amp = this.sSwing.update(walking ? (state === 'flee' ? 0.62 : 0.32) : 0, dt);
     const swing = Math.sin(phase) * amp;
     const sit = Math.max(0, Math.min(1, this.sSit.update(sitting ? 1 : 0, dt)));
-    // walk (alternating pairs) blended with the sitting pose (back legs folded)
+    // the body tips up about the hips: sitting (and lowered onto its haunches) or rearing
+    const tip = 0.42 * sit + 0.48 * rearAmt + this.sBodyRot.update(bodyRotT, dt);
+    const lower = 0.072 * sit;
+    const c = Math.cos(tip);
+    const s = Math.sin(tip);
+    this.body.rotation.z = tip;
+    this.body.position.set(HIP_X - (HIP_X * c - HIP_Y * s), HIP_Y - (HIP_X * s + HIP_Y * c) - lower + this.sBodyY.update(bodyYT, dt), 0);
+    // walk (alternating pairs) blended with sitting (front legs upright, hind legs folded forward)
     const l = this.legs;
-    l[0].rotation.z = swing * (1 - sit) + -0.3 * sit;
-    l[1].rotation.z = -swing * (1 - sit) + -0.25 * sit;
-    l[2].rotation.z = -swing * (1 - sit) + -1.1 * sit;
-    l[3].rotation.z = swing * (1 - sit) + -1.0 * sit;
+    l[0].rotation.z = swing * (1 - sit) - tip * sit + 0.06 * sit;
+    l[1].rotation.z = -swing * (1 - sit) - tip * sit + 0.12 * sit;
+    l[2].rotation.z = -swing * (1 - sit) + 1.35 * sit;
+    l[3].rotation.z = swing * (1 - sit) + 1.25 * sit;
     if (rearAmt > 0.01) {
       // front legs up and forward, hind legs braced
-      l[0].rotation.z += 0.9 * rearAmt;
+      l[0].rotation.z += 0.95 * rearAmt;
       l[1].rotation.z += 0.75 * rearAmt;
-      l[2].rotation.z -= 0.35 * rearAmt;
-      l[3].rotation.z -= 0.3 * rearAmt;
+      l[2].rotation.z -= 0.48 * rearAmt;
+      l[3].rotation.z -= 0.42 * rearAmt;
     }
-    this.body.position.y = this.sBodyY.update(bodyYT, dt) + 0.03 * rearAmt;
-    this.body.rotation.z = this.sBodyRot.update(bodyRotT, dt) + 0.5 * rearAmt;
-    this.head.rotation.z = this.sHead.update(headT, dt);
-    this.tail.rotation.z = this.sTail.update(tailT, dt);
+    this.head.rotation.z = this.sHead.update(headT, dt) - tip * 0.5 * (1 - sit);
+    this.tail.rotation.z = this.sTail.update(tailT, dt) - tip * 0.6;
   }
 }

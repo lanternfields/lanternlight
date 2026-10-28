@@ -109,6 +109,11 @@ export class GhostCaster {
         oy = 0;
         break;
       }
+      case 'point':
+        // one finger up, held very still (only a slow breath of motion)
+        Object.assign(p, POSES.point);
+        roll = 6 * Math.sin(phase * 0.8);
+        break;
       case 'bridge':
         Object.assign(p, POSES.flat);
         roll = -90;

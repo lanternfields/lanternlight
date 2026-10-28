@@ -26,14 +26,16 @@ import {
   WebGLRenderTarget,
   WebGLRenderer,
 } from '@iwsdk/core';
-import { Actor, Capsule2D, PALM_POINTS, ShadowModel, CROC_ROD_PUPPET } from '../core/shadow-model.js';
-import { StageView, GROUND_T } from '../core/story.js';
+import { Actor, Capsule2D, PALM_POINTS, ShadowModel } from '../core/shadow-model.js';
+import { StageView, GROUND_T, RABBIT_DRAW_SCALE } from '../core/story.js';
 import { GhostCaster } from '../core/ghost.js';
 import { Spring, easeOutBack, easeOutCubic, keyLoop, smoothNoise } from '../core/ease.js';
 import { WolfPuppet } from './wolf-puppet.js';
 import { CrocOverlay } from './croc-overlay.js';
 import { TitleCard } from './title-card.js';
-import { drawBurrowDoor, drawFirefly, drawLilies, drawReeds, drawReflection, drawStars } from './scenery-art.js';
+import { BirdPuppet } from './bird-puppet.js';
+import { NIGHT_CROC_THROAT, NightCroc, createCrocHead } from './croc-art.js';
+import { drawBurrowDoor, drawFirefly, drawLilies, drawReeds, drawReflection, drawRipples, drawStars } from './scenery-art.js';
 import {
   CH_CUTOUT,
   CH_HOLE,
@@ -61,8 +63,14 @@ const EAR_TWITCH: readonly (readonly [number, number])[] = [
   [4.9, -0.05],
   [5.05, 0],
 ];
-/** Rabbit puppet scale (its model is ~0.15 stage units tall at 1). */
-export const RABBIT_SCALE = 1.55;
+/** Rabbit puppet scale (its model is ~0.16 stage units tall at 1). */
+export const RABBIT_SCALE = RABBIT_DRAW_SCALE;
+/** A hand that leaves tracking dissolves over this long (never a one-frame vanish). */
+const LOST_FADE = 0.35;
+const LOST_MAX = 48;
+/** Firefly trail: points kept per firefly, and how often one is laid down. */
+const TRAIL_N = 7;
+const TRAIL_EVERY = 0.035;
 
 class CapsuleBatch {
   readonly mesh: Mesh;
@@ -118,7 +126,7 @@ class CapsuleBatch {
     this.fade[i] = c.fadeB ?? 1;
   }
 
-  pushRaw(ax: number, ay: number, bx: number, by: number, r: number, soft: number, strength = 1, rb = r): void {
+  pushRaw(ax: number, ay: number, bx: number, by: number, r: number, soft: number, strength = 1, rb = r, fadeB = 1): void {
     if (this.count >= this.max) return;
     const i = this.count++;
     this.seg[i * 4] = ax;
@@ -129,7 +137,7 @@ class CapsuleBatch {
     this.rad[i * 4 + 1] = rb;
     this.rad[i * 4 + 2] = soft;
     this.rad[i * 4 + 3] = strength;
-    this.fade[i] = 1;
+    this.fade[i] = fadeB;
   }
 
   end(): void {
@@ -281,11 +289,23 @@ export class ShadowStage {
   private readonly ghostCaster = new GhostCaster();
   private readonly details = new CapsuleBatch(128, CH_CUTOUT);
   private readonly holes = new CapsuleBatch(32, CH_HOLE);
-  private readonly glows = new GlowBatch(128);
+  private readonly glows = new GlowBatch(224);
   private readonly crocOverlay = new CrocOverlay();
   private readonly title = new TitleCard();
   private readonly titleDisc = new Mesh(new PlaneGeometry(1, 1), createIconMaterial());
-  private readonly courageRing = new Mesh(new PlaneGeometry(1, 1), createIconMaterial());
+  private readonly bird = new BirdPuppet();
+  private readonly nightCroc = new NightCroc();
+  private readonly iconCroc = createCrocHead();
+  /** Each actor's last shadow, kept to dissolve it when the hand is lost. */
+  private readonly lostCaps: Float32Array[] = [0, 1, 2, 3].map(() => new Float32Array(LOST_MAX * 8));
+  private readonly lostN = [0, 0, 0, 0];
+  private readonly lostFade = [0, 0, 0, 0];
+  private readonly trails = new Float32Array(8 * TRAIL_N * 2);
+  private readonly trailAlive: boolean[] = [];
+  private trailClock = 0;
+  private readonly beakTrail = new Float32Array(6 * 2);
+  private readonly beakXY: [number, number] = [0, 0];
+  private focus = 1;
   private readonly rabbitTilt = new Spring(0, 12, 0.7);
   private readonly rabbitEars = new Spring(0, 11, 0.38);
   private prevRabbitY = 0;
@@ -331,6 +351,9 @@ export class ShadowStage {
       this.iconRabbit.group,
       this.wolf.group,
       this.iconWolf.group,
+      this.bird.group,
+      this.nightCroc.group,
+      this.iconCroc.group,
       this.glows.mesh,
       this.holes.mesh,
     );
@@ -346,9 +369,7 @@ export class ShadowStage {
     this.titleDisc.frustumCulled = false;
     this.titleDisc.visible = false;
     this.scene.add(this.titleDisc);
-    this.courageRing.frustumCulled = false;
-    this.courageRing.visible = false;
-    this.scene.add(this.courageRing);
+    this.iconCroc.group.visible = false;
     // Draw order matters only for readability; MAX blending is order independent.
     this.setLayout(1.45, 512);
   }
@@ -377,8 +398,10 @@ export class ShadowStage {
     const dt = this.lastTime < 0 ? 1 / 72 : Math.min(0.1, Math.max(0, time - this.lastTime));
     this.lastTime = time;
     const set = view.set;
-    // penumbra breathes a little with the flame
-    this.penumbra = model.penumbra * (1 + (reduceMotion ? 0 : 0.08 * flicker));
+    // penumbra breathes a little with the flame; the bridge tale brings the
+    // shadows into focus, so a flat hand reads as a hand (fingers and all)
+    this.focus += ((view.scene === 'bridge' ? 0.55 : 1) - this.focus) * (1 - Math.exp(-3 * dt));
+    this.penumbra = model.penumbra * this.focus * (1 + (reduceMotion ? 0 : 0.08 * flicker));
     this.glows.begin();
     this.details.begin();
     this.holes.begin();
@@ -386,10 +409,18 @@ export class ShadowStage {
     // ---- cast shadows (hands & rod puppets)
     this.hands.begin();
     for (let i = 0; i < model.capsuleCount; i++) this.hands.push(model.capsules[i]);
+    this.dissolveLost(model, dt);
     this.hands.end();
     for (let h = 0; h < 2; h++) {
       const a = model.actors[h];
-      this.updatePalm(this.palms[h], a, 1);
+      if (a.present || this.lostFade[h] <= 0) this.updatePalm(this.palms[h], a, 1);
+      else {
+        // the lost hand's palm dissolves with its fingers (its contour is last frame's)
+        const palm = this.palms[h];
+        const f = this.lostFade[h];
+        palm.visible = palm.visible && f > 0.01;
+        (palm.material as ShaderMaterial).uniforms.uStrength.value = f * f * (3 - 2 * f);
+      }
     }
 
     // ---- ghost hint: cast by the same caster as a real hand, only fainter
@@ -425,6 +456,10 @@ export class ShadowStage {
       drawReeds(this.scenery, GROUND_T - 0.01, time, reduceMotion, set);
       if (Number.isFinite(view.waterY)) drawLilies(this.scenery, view.waterY, time, reduceMotion, set);
     }
+    // the bridge tale: lamplight rippling on the water in the gap
+    if (view.scene === 'bridge' && Number.isFinite(view.gap) && Number.isFinite(view.waterY)) {
+      drawRipples(this.glows, -view.gap, view.gap, view.waterY, time, reduceMotion, set);
+    }
     // burrow mound with a lit doorway
     if (view.burrow.visible > 0.01) {
       const b = view.burrow;
@@ -449,7 +484,18 @@ export class ShadowStage {
       this.lastGulps = croc.gulps;
     }
     const crocActor = croc.actor >= 0 && croc.visible > 0.05 ? model.actors[croc.actor] : null;
-    this.crocOverlay.update(dt, model, crocActor && crocActor.present ? crocActor : null, croc.visible, croc.open, time, this.details, this.holes, this.glows);
+    this.crocOverlay.update(dt, model, crocActor && crocActor.present ? crocActor : null, croc.visible, croc.open, time, this.details, this.holes, this.glows, croc.full);
+    // ...and the full crocodile drifting off down the river, a night-light
+    const nl = view.nightLight;
+    this.nightCroc.update(nl.x, nl.y, nl.dir, nl.visible * set, time, reduceMotion);
+    if (nl.visible > 0.02) {
+      const tx = nl.x + nl.dir * NIGHT_CROC_THROAT[0];
+      const ty = nl.y + NIGHT_CROC_THROAT[1];
+      const g = nl.glow * nl.visible;
+      this.glows.push(tx, ty + 0.01, 0.11, 0.42 * g);
+      this.glows.push(tx, ty, 0.035, 0.95 * g);
+      if (hasWater) drawReflection(this.glows, tx, view.waterY - 0.01, g * 1.6, ty, time);
+    }
 
     // ---- menu icons: appear with a little overshoot, staggered (story sets 0..1)
     for (let i = 0; i < view.icons.length; i++) {
@@ -466,32 +512,29 @@ export class ShadowStage {
       mat.uniforms.uTime.value = time;
       if (!mesh.visible) continue;
       const k0 = 0.55 + 0.45 * easeOutBack(icon.visible, 1.7);
-      if (icon.id === 'croc') {
-        // the croc puppet spans ~0.4 m; fit it inside the ring
-        const k = ((icon.r * 1.45) / 0.18) * k0;
-        for (let pi = 1; pi < CROC_ROD_PUPPET.length; pi++) {
-          const part = CROC_ROD_PUPPET[pi];
-          this.details.pushRaw(
-            icon.s + (part.a[0] + 0.02) * k,
-            icon.t + (part.a[1] - 0.2) * k,
-            icon.s + (part.b[0] + 0.02) * k,
-            icon.t + (part.b[1] - 0.2) * k,
-            part.r * k,
-            0.003,
-            vis,
-          );
-        }
-      } else if (icon.id === 'bridge') {
+      if (icon.id === 'bridge') {
         // a little plank bridge under the icon rabbit
         this.details.pushRaw(icon.s - 0.07 * k0, icon.t - 0.045 * k0, icon.s + 0.07 * k0, icon.t - 0.045 * k0, 0.006 * k0, 0.003, vis);
       }
+    }
+    // the croc medallion: a side profile with open jaws (reads at a glance, unlike a stick)
+    const crocIcon = view.icons[0];
+    const ic = this.iconCroc;
+    ic.group.visible = view.scene === 'menu' && crocIcon.visible > 0.05;
+    if (ic.group.visible) {
+      const k0 = 0.55 + 0.45 * easeOutBack(crocIcon.visible, 1.7);
+      const k = ((crocIcon.r * 1.62) / 0.36) * k0;
+      ic.group.position.set(crocIcon.s + 0.006 * k0, crocIcon.t + 0.004 * k0, 0);
+      ic.group.scale.set(k, k, 1);
+      ic.group.rotation.z = 0.1 + (reduceMotion ? 0 : 0.04 * Math.sin(time * 2.2));
+      for (const m of ic.materials) m.uniforms.uStrength.value = easeOutCubic(crocIcon.visible);
     }
     const wolfIcon = view.icons[2];
     const iw = this.iconWolf;
     if (wolfIcon && view.scene === 'menu' && wolfIcon.visible > 0.05) {
       const k0 = 0.55 + 0.45 * easeOutBack(wolfIcon.visible, 1.7);
-      iw.update(wolfIcon.s + 0.005 * k0, wolfIcon.t - 0.05 * k0, 1, 'howl', 0.35, 0, 1, time);
-      iw.group.scale.set(0.4 * k0, 0.4 * k0, 1);
+      iw.update(wolfIcon.s - 0.004 * k0, wolfIcon.t - 0.058 * k0, 1, 'howl', 0.35, 0, 1, time);
+      iw.group.scale.set(0.36 * k0, 0.36 * k0, 1);
     } else {
       iw.group.visible = false;
     }
@@ -520,7 +563,12 @@ export class ShadowStage {
         // the firefly the crocodile is snapping at
         drawFirefly(this.glows, 0.19 * this.title.scale, 0.0, ta, 0, time, reduceMotion);
       } else if (view.title.id === 'wolf') {
-        this.glows.push(0.1, 0.11, 0.07, 0.95 * ta);
+        this.glows.push(0.13, 0.12, 0.07, 0.95 * ta);
+      } else if (view.title.id === 'finale') {
+        // the spark in the bird's beak
+        const sp = this.title.spark;
+        this.glows.push(sp[0], sp[1], 0.06, 0.75 * ta);
+        this.glows.push(sp[0], sp[1], 0.018, 1.0 * ta);
       }
     }
 
@@ -551,18 +599,41 @@ export class ShadowStage {
     // ---- wolf & moon
     const wv = view.wolf;
     const mv = view.moon;
-    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible * (view.scene === 'wolf' ? set : 1), time, 1.15 * wv.scale, wv.hesitate, wv.vx);
-    // the moon's ring fills as your shadow grows (the wolf tale's courage meter)
-    const cr = this.courageRing;
-    cr.visible = view.courageRing > 0.02 && mv.visible > 0.1;
-    if (cr.visible) {
-      const u = (cr.material as ShaderMaterial).uniforms;
-      cr.position.set(mv.s, mv.t, 0);
-      cr.scale.setScalar(mv.r * 2 * 2.3);
-      u.uFill.value = Math.min(1, view.courage);
-      u.uVisible.value = view.courageRing;
-      u.uDone.value = 0;
-      u.uTime.value = time;
+    const wolfSet = view.scene === 'wolf' || view.scene === 'finale' ? set : 1;
+    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible * wolfSet, time, wv.scale, wv.hesitate, wv.vx);
+
+    // ---- the finale's bird, and the lantern's spark it carries away
+    const bv = view.bird;
+    const bvis = view.scene === 'finale' ? bv.visible * set : 0;
+    this.bird.update(bv.x, bv.y, bv.dir, bv.flying, bv.tilt, bvis, bv.landings, time, reduceMotion);
+    const bt = this.beakTrail;
+    if (bvis > 0.02) {
+      this.bird.beak(bv.x, bv.y, bv.dir, bv.tilt, this.beakXY);
+      const bx = this.beakXY[0];
+      const by = this.beakXY[1];
+      if (bv.carry > 0.01) {
+        for (let i = bt.length / 2 - 1; i > 0; i--) {
+          bt[i * 2] = bt[(i - 1) * 2];
+          bt[i * 2 + 1] = bt[(i - 1) * 2 + 1];
+        }
+        bt[0] = bx;
+        bt[1] = by;
+        for (let i = 1; i < bt.length / 2; i++) this.glows.push(bt[i * 2], bt[i * 2 + 1], 0.022 - i * 0.002, 0.45 * (1 - i / 6) * bv.carry);
+        this.glows.push(bx, by, 0.075, 0.55 * bv.carry);
+        this.glows.push(bx, by, 0.02, 1.0 * bv.carry);
+      } else {
+        for (let i = 0; i < bt.length / 2; i++) {
+          bt[i * 2] = bx;
+          bt[i * 2 + 1] = by;
+        }
+      }
+    }
+    // the spark arriving on the wall from the lantern (the app draws its flight across the room)
+    const sp = view.spark;
+    if (sp.travel > 0.6) {
+      const u = (sp.travel - 0.6) / 0.4;
+      this.glows.push(sp.s, sp.t, 0.03 + 0.05 * u, 0.9 * u);
+      this.glows.push(sp.s, sp.t, 0.016, u);
     }
     this.moon.visible = mv.visible > 0.02;
     this.moon.position.set(mv.s, mv.t, 0);
@@ -573,16 +644,42 @@ export class ShadowStage {
     if (mv.visible > 0.02) this.glows.push(mv.s, mv.t, mv.r * 2.6, (0.35 + 0.45 * mv.glow) * mv.visible);
     if (view.scene === 'wolf' || view.scene === 'finale') drawStars(this.glows, mv.visible, time, reduceMotion);
     const river = view.scene === 'croc' && hasWater;
-    for (let i = 0; i < view.fireflies.length; i++) {
+    this.trailClock += dt;
+    const lay = this.trailClock >= TRAIL_EVERY;
+    if (lay) this.trailClock = 0;
+    const tr = this.trails;
+    for (let i = 0; i < view.fireflies.length && i < 8; i++) {
       const f = view.fireflies[i];
+      const o = i * TRAIL_N * 2;
       if (f.alive) {
+        if (!this.trailAlive[i]) {
+          for (let k = 0; k < TRAIL_N; k++) {
+            tr[o + k * 2] = f.x;
+            tr[o + k * 2 + 1] = f.y;
+          }
+        } else if (lay) {
+          for (let k = TRAIL_N - 1; k > 0; k--) {
+            tr[o + k * 2] = tr[o + (k - 1) * 2];
+            tr[o + k * 2 + 1] = tr[o + (k - 1) * 2 + 1];
+          }
+          tr[o] = f.x;
+          tr[o + 1] = f.y;
+        }
+        // a fading trail of light behind it (the core and halo are drawn on top)
+        if (!reduceMotion) {
+          for (let k = 1; k < TRAIL_N; k++) {
+            const u = k / TRAIL_N;
+            this.glows.push(tr[o + k * 2], tr[o + k * 2 + 1], 0.026 * (1 - u * 0.6), 0.42 * (1 - u) * f.glow);
+          }
+        }
         drawFirefly(this.glows, f.x, f.y, f.glow, i, time, reduceMotion);
         if (river) drawReflection(this.glows, f.x, view.waterY, f.glow, f.y, time);
       } else if (f.eaten > 0) {
-        // a little burst of light where it was caught
+        // a burst of light where it was caught
         const e = easeOutCubic(f.eaten);
-        this.glows.push(f.x, f.y, 0.03 + e * 0.09, (1 - e) * 0.85);
+        this.glows.push(f.x, f.y, 0.05 + e * 0.16, (1 - e) * 0.95);
       }
+      this.trailAlive[i] = f.alive;
     }
     if (view.sparkle > 0.02 && !reduceMotion) {
       for (let k = 0; k < 10; k++) {
@@ -594,6 +691,44 @@ export class ShadowStage {
     this.glows.end();
     this.details.end();
     this.holes.end();
+  }
+
+  /**
+   * A hand that is no longer tracked keeps its last shadow for a moment and
+   * dissolves it (eased), instead of vanishing in one frame.
+   */
+  private dissolveLost(model: ShadowModel, dt: number): void {
+    for (let ai = 0; ai < model.actors.length && ai < 4; ai++) {
+      const a = model.actors[ai];
+      const buf = this.lostCaps[ai];
+      if (a.present) {
+        let n = 0;
+        const end = a.capsuleStart + a.capsuleCount;
+        for (let i = a.capsuleStart; i < end && n < LOST_MAX; i++, n++) {
+          const c = model.capsules[i];
+          const o = n * 8;
+          buf[o] = c.ax;
+          buf[o + 1] = c.ay;
+          buf[o + 2] = c.bx;
+          buf[o + 3] = c.by;
+          buf[o + 4] = c.r;
+          buf[o + 5] = c.rb ?? c.r;
+          buf[o + 6] = c.soft;
+          buf[o + 7] = c.fadeB ?? 1;
+        }
+        this.lostN[ai] = n;
+        this.lostFade[ai] = n > 0 ? 1 : 0;
+        continue;
+      }
+      if (this.lostFade[ai] <= 0) continue;
+      this.lostFade[ai] = Math.max(0, this.lostFade[ai] - dt / LOST_FADE);
+      const f = this.lostFade[ai];
+      const k = f * f * (3 - 2 * f);
+      for (let n = 0; n < this.lostN[ai]; n++) {
+        const o = n * 8;
+        this.hands.pushRaw(buf[o], buf[o + 1], buf[o + 2], buf[o + 3], buf[o + 4], buf[o + 6], k, buf[o + 5], buf[o + 7]);
+      }
+    }
   }
 
   /** Debug/test: the crocodile overlay's smoothed eye position, or null. */

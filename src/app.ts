@@ -26,7 +26,8 @@ import {
   DEFAULT_PLACEMENT,
 } from './core/stage-placement.js';
 import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
-import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT, StageView } from './core/story.js';
+import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT, StageView, SilhouetteBox, silhouettes } from './core/story.js';
+import { LanternSpark } from './render/spark.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
 import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
@@ -91,12 +92,19 @@ export class App {
   private lastLineAlpha = 0;
   /** Music level of the last frame (the capture's soundtrack replays it). */
   lastMusic = 0;
-  /** Where the ribbon sits: a spot clear of every shadow and character (it never glides across them). */
-  private ribbonLine = -1;
-  private ribbonFade = 1;
-  private ribbonHold = 0;
-  private readonly occupied: number[] = [];
-  private readonly spotOverlap = new Float32Array(RIBBON_SPOTS.length / 2);
+  /** The 3D spark from the lantern to the wall (finale). */
+  private readonly spark = new LanternSpark();
+  private readonly sparkFrom = new Vector3();
+  private readonly sparkTo = new Vector3();
+  private readonly sil: SilhouetteBox[] = [];
+  private readonly rb = { s: 0, t: 0, hw: 0, hh: 0 };
+  /**
+   * The storyteller ribbon this frame (recordings prove legibility from it):
+   * its opacity, and how much of it (stage units squared) story characters or
+   * the moon, and hands, lie under it. The ribbon is drawn on top of
+   * everything, so neither ever hides a word.
+   */
+  readonly ribbonStats = { line: '', opacity: 0, story: 0, hands: 0 };
   private trembling = false;
   private lineLeaving = false;
   /** Lantern-lit stand-ins for your hands where passthrough can't show them. */
@@ -198,6 +206,7 @@ export class App {
     add(this.theatre.group);
     add(this.standIns.group);
     add(this.props.group);
+    add(this.spark.group);
     const grips = world.playerSpaceEntities.gripSpaces;
     world.createTransformEntity(this.puppets[0].group, { parent: grips.left, persistent: true });
     world.createTransformEntity(this.puppets[1].group, { parent: grips.right, persistent: true });
@@ -660,7 +669,7 @@ export class App {
     }
     this.lastForward.copy(this.headForward);
     const fr = this.placement!.frame;
-    const needPose = this.story.scene === 'intro' || this.story.scene === 'menu';
+    const needPose = this.story.scene === 'intro' || this.story.scene === 'menu' || this.story.wantsPose;
     this.model.head.copy(this.head);
     // viewer right = forward x up (horizontal)
     this.model.right.set(-this.headForward.z, 0, this.headForward.x);
@@ -699,10 +708,12 @@ export class App {
     // recordings (?capture=1) show the shadows alone; the emulator keeps stand-ins out of the stage
     // emulator: stand-in hands, kept out of the stage only in close-ups (wide and
     // inset shots show the whole hand and arm); the VR theatre shows them whole
-    const showStandIns = this.emulated || this.session.mode === 'vr';
+    // recordings: stand-ins only in the wide and inset shots (in a stage close-up
+    // they would poke in from the frame edge; the shadow tells the story there)
+    const showStandIns = (this.emulated || this.session.mode === 'vr') && !(this.capture && this.emulated && this.captureShot === 'close');
     const mask = this.emulated && this.session.mode !== 'vr' && this.captureShot === 'close';
-    // recordings: a soft key in wide and inset shots; close-ups keep the hands dim
-    this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? (this.captureShot === 'close' ? 0.12 : 1) : 0;
+    // recordings: a soft key light on the stand-in hands
+    this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? 1 : 0;
     this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
     // recordings: a little table under a floating lantern (never on a headset)
     {
@@ -716,10 +727,20 @@ export class App {
       this.puppets[i].group.visible = vis;
       if (vis) this.puppets[i].update(this.rods[i].trigger);
     }
+    // the finale: the lantern's spark crosses the room to the wall
+    {
+      const sp = view.spark;
+      if (sp.travel >= 0) {
+        stageToWorld(fr, sp.s, sp.t, this.tmpV3);
+        this.sparkTo.set(this.tmpV3.x + fr.normal.x * 0.02, this.tmpV3.y + fr.normal.y * 0.02, this.tmpV3.z + fr.normal.z * 0.02);
+        this.sparkFrom.set(this.flameW.x, this.flameW.y, this.flameW.z);
+      }
+      this.spark.update(sp.travel, this.sparkFrom, this.sparkTo);
+    }
     const u = this.composite.material.uniforms;
-    // the scare: a flare of lamplight; the courage ring warms the pool as your shadow grows
-    u.uLight.value = view.light * (1 + 0.45 * view.flare);
-    u.uWarmth.value = Math.min(1, Math.max(view.warmth, view.flare * 0.9, view.courageRing * Math.min(1, view.courage) * 0.45));
+    // the scare: a flare of lamplight; the light brightens as your shadow grows big enough
+    u.uLight.value = view.light * (1 + 0.45 * view.flare + 0.28 * view.brighten);
+    u.uWarmth.value = Math.min(1, Math.max(view.warmth, view.flare * 0.9, view.brighten * 0.4));
     // ...and the wall trembles for a moment (never with reduced motion)
     if (view.tremble > 0.001 && !reduce) {
       const amp = 0.0035 * fr.height * view.tremble;
@@ -764,7 +785,8 @@ export class App {
     // Audio.
     this.audio.updateListener(this.head, this.headForward, this.headUp);
     const sc = this.story.scene;
-    const music = sc === 'menu' || sc === 'bridge' || sc === 'finale' ? 1 : sc === 'croc' ? 0.7 : sc === 'wolf' ? 0.35 : view.light > 0.5 ? 0.5 : 0;
+    const music =
+      sc === 'menu' || sc === 'bridge' ? 1 : sc === 'finale' ? 0.25 + 0.75 * view.light : sc === 'croc' ? 0.7 : sc === 'wolf' ? 0.35 : view.light > 0.5 ? 0.5 : 0;
     this.lastMusic = music * (1 - view.fade);
     this.audio.ambience = sc === 'croc' || sc === 'bridge' || sc === 'wolf' ? sc : '';
     this.audio.tick(dt, view.flame, this.lastMusic);
@@ -790,49 +812,39 @@ export class App {
   private textDt = 1 / 72;
 
   /**
-   * A place for the storyteller's ribbon that covers no shadow or character
-   * (hands and puppets, the rabbit, the wolf, the story lanterns, the ghost
-   * pictogram): the first free candidate band, above the action or else
-   * under the stage.
+   * What lies under the storyteller's ribbon (its one fixed slot): story
+   * characters and the moon, and hands. The story stages its characters
+   * clear of the slot; a player's hand may pass under it, and the ribbon,
+   * drawn on top, stays fully legible either way.
    */
-  private pickRibbon(view: StageView): number {
-    const occ = this.occupied;
-    occ.length = 0;
-    const box = (s0: number, s1: number, t0: number, t1: number) => occ.push(s0, s1, t0, t1);
-    // hands: the hand itself and the start of the forearm (its far end fades to nothing)
+  private measureRibbon(view: StageView): void {
+    const st = this.ribbonStats;
+    const rb = this.rb;
+    rb.s = RIBBON_SPOTS[0];
+    rb.t = RIBBON_SPOTS[1];
+    rb.hw = this.banner.contentW / 2;
+    rb.hh = this.banner.contentH / 2;
+    let story = 0;
+    const n = silhouettes(view, this.sil);
+    for (let i = 0; i < n; i++) story += this.underRibbon(this.sil[i].s0, this.sil[i].s1, this.sil[i].t0, this.sil[i].t1);
+    const mv = view.moon;
+    if (mv.visible > 0.3) story += this.underRibbon(mv.s - mv.r, mv.s + mv.r, mv.t - mv.r, mv.t + mv.r);
+    let hands = 0;
     for (const a of this.model.actors) {
       if (!a.present) continue;
-      if (a.kind === 'hand') box(a.handMinS - 0.03, a.handMaxS + 0.03, Math.max(a.minT, a.handMinT - 0.12), a.handMaxT + 0.03);
-      else box(a.minS - 0.02, a.maxS + 0.02, a.minT - 0.02, a.maxT + 0.02);
+      if (a.kind === 'hand') hands += this.underRibbon(a.handMinS, a.handMaxS, a.handMinT, a.handMaxT);
+      else hands += this.underRibbon(a.minS, a.maxS, a.minT, a.maxT);
     }
-    const rv = view.rabbit;
-    if (rv.visible > 0.3) box(rv.x - 0.1 * rv.scale, rv.x + 0.1 * rv.scale, rv.y - 0.02, rv.y + 0.25 * rv.scale);
-    const wv = view.wolf;
-    if (wv.visible > 0.3 && wv.state !== 'away') box(wv.x - 0.22 * wv.scale, wv.x + 0.22 * wv.scale, wv.y - 0.02, wv.y + 0.34 * wv.scale);
-    if (view.scene === 'menu') for (const i of view.icons) if (i.visible > 0.05) box(i.s - i.r, i.s + i.r, i.t - i.r, i.t + i.r);
-    const g = view.ghost;
-    if (g.visible > 0.08) box(g.s - 0.24 * g.scale, g.s + 0.24 * g.scale, g.t - 0.3 * g.scale, g.t + 0.26 * g.scale);
-    const hw = this.banner.contentW / 2 + 0.015;
-    const hh = this.banner.contentH / 2 + 0.015;
-    let best = -1;
-    let least = Infinity;
-    for (let c = 0; c < RIBBON_SPOTS.length; c += 2) {
-      const s = RIBBON_SPOTS[c];
-      const t = RIBBON_SPOTS[c + 1];
-      let overlap = 0;
-      for (let k = 0; k < occ.length; k += 4) {
-        const ox = Math.min(s + hw, occ[k + 1]) - Math.max(s - hw, occ[k]);
-        const oy = Math.min(t + hh, occ[k + 3]) - Math.max(t - hh, occ[k + 2]);
-        if (ox > 0 && oy > 0) overlap += ox * oy;
-      }
-      this.spotOverlap[c / 2] = overlap;
-      if (overlap < 1e-6 && best < 0) best = c / 2;
-      if (overlap < least) least = overlap;
-    }
-    if (best >= 0) return best;
-    // nowhere is free: the spot that covers least
-    for (let i = 0; i < this.spotOverlap.length; i++) if (this.spotOverlap[i] === least) return i;
-    return 0;
+    st.story = story;
+    st.hands = hands;
+  }
+
+  /** Area (stage units squared) of a box that lies under the ribbon. */
+  private underRibbon(s0: number, s1: number, t0: number, t1: number): number {
+    const rb = this.rb;
+    const ox = Math.min(rb.s + rb.hw, s1) - Math.max(rb.s - rb.hw, s0);
+    const oy = Math.min(rb.t + rb.hh, t1) - Math.max(rb.t - rb.hh, t0);
+    return ox > 0 && oy > 0 ? ox * oy : 0;
   }
 
   private updateText(): void {
@@ -848,27 +860,15 @@ export class App {
     this.lastLineAlpha = tv.lineAlpha;
     const a = tv.lineAlpha;
     const reveal = this.lineLeaving ? 1 : 1 - Math.pow(1 - a, 3);
-    if (tv.line) {
-      // one fixed slot, never moving: a new line waits (up to 2 s) for the slot to
-      // be clear of shadows; if a hand moves in under it later, it dims so the
-      // shadow shows through, and comes back when the hand leaves
-      this.pickRibbon(view);
-      const blocked = this.spotOverlap[0] > 0.0002;
-      if (tv.lineId !== this.ribbonLine) {
-        this.ribbonLine = tv.lineId;
-        this.ribbonHold = blocked ? 2.0 : 0;
-        this.ribbonFade = blocked ? 0 : 1;
-      }
-      if (this.ribbonHold > 0) {
-        this.ribbonHold = blocked ? this.ribbonHold - this.textDt : 0;
-        this.ribbonFade = 0;
-      } else {
-        const target = blocked ? 0.22 : 1;
-        this.ribbonFade += (target - this.ribbonFade) * (1 - Math.exp(-7 * this.textDt));
-      }
-    }
-    const rf = this.ribbonFade * this.ribbonFade * (3 - 2 * this.ribbonFade);
-    this.banner.show((this.lineLeaving ? a : Math.min(1, a * 1.6)) * vis * rf, reveal);
+    // one fixed slot, never moving, drawn over everything at full strength for
+    // the line's whole hold (it never dims or waits for a shadow to move)
+    const opacity = (this.lineLeaving ? a : Math.min(1, a * 1.6)) * vis;
+    this.banner.show(opacity, reveal);
+    this.ribbonStats.line = words ? tv.line : '';
+    this.ribbonStats.opacity = tv.line && words ? opacity : 0;
+    // (measured for recordings only: the legibility proof)
+    if (tv.line && this.capture) this.measureRibbon(view);
+    else this.ribbonStats.story = this.ribbonStats.hands = 0;
     if (this.banner.mesh.visible) this.placeText(this.banner, fr, RIBBON_SPOTS[0], RIBBON_SPOTS[1]);
     // prompt: a few small-caps words under the stage, below the pictogram
     const prompt = !words ? '' : this.settings.fullCaptions ? tv.promptFull || tv.prompt : tv.prompt;

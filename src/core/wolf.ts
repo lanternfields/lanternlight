@@ -8,7 +8,7 @@
  * Every move follows a smooth velocity (STYLE_GUIDE 4): no linear starts or
  * stops, a crouch before the bolt, a slowing walk into each stop.
  */
-export type WolfState = 'away' | 'prowl' | 'cower' | 'rear' | 'flee' | 'sit' | 'return' | 'howl';
+export type WolfState = 'away' | 'prowl' | 'cower' | 'rear' | 'flee' | 'sit' | 'return' | 'howl' | 'rest';
 
 export interface WolfEvents {
   growl: boolean;
@@ -73,7 +73,8 @@ export class Wolf {
   befriend(): void {
     this.setState('return');
     this.dir = -1;
-    this.x = Math.max(this.x, this.exitX - 0.12);
+    // walks back in from beyond the edge of the light (no pop-in)
+    this.x = Math.max(this.x, this.exitX + 0.18);
     this.vx = 0;
     this.fear = 0;
   }
@@ -94,10 +95,11 @@ export class Wolf {
     };
     const stalking = this.state === 'prowl' || this.state === 'sit';
     // it hesitates as your shadow nears the size that scares it (a resting hand is ~0.8 of it)
-    const h = stalking ? Math.min(1, Math.max(0, (courage - 0.84) / 0.16)) : this.state === 'cower' || this.state === 'rear' ? 1 : 0;
+    // (its ears flatten and it slows from about two thirds of the way there)
+    const h = stalking ? Math.min(1, Math.max(0, (courage - 0.62) / 0.33)) : this.state === 'cower' || this.state === 'rear' ? 1 : 0;
     this.hesitate += (h - this.hesitate) * (1 - Math.exp(-6 * dt));
     const targetCrouch =
-      this.state === 'cower' ? 1 : this.state === 'rear' ? 0.55 : this.state === 'prowl' ? 0.45 : this.state === 'sit' || this.state === 'howl' ? 0.35 : 0;
+      this.state === 'cower' ? 1 : this.state === 'rear' ? 0.55 : this.state === 'prowl' ? 0.45 : this.state === 'sit' || this.state === 'howl' || this.state === 'rest' ? 0.35 : 0;
     this.crouch += (targetCrouch - this.crouch) * (1 - Math.exp(-8 * dt));
     switch (this.state) {
       case 'away':
@@ -156,7 +158,8 @@ export class Wolf {
         return ev;
       case 'flee':
         ease(1.1, 7);
-        if (this.x > this.exitX + 0.25) this.setState('away');
+        // gone once even its tail has left the light
+        if (this.x > this.exitX + 0.5) this.setState('away');
         return ev;
       case 'return': {
         // peeks back in and eases to a stop where it sits to sing
@@ -170,6 +173,7 @@ export class Wolf {
         return ev;
       }
       case 'howl':
+      case 'rest':
         ease(0, 6);
         return ev;
     }

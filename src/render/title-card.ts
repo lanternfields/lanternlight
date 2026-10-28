@@ -8,60 +8,13 @@ import { Group, Mesh, Object3D, ShaderMaterial } from '@iwsdk/core';
 import { CH_CUTOUT, CH_HOLE, createFlatMaterial } from './materials.js';
 import { circleShape, pathGeometry } from './paths.js';
 import { WolfPuppet } from './wolf-puppet.js';
+import { BirdPuppet } from './bird-puppet.js';
+import { CROC_HEAD, CROC_HEAD_EYE, crocTeeth } from './croc-art.js';
 import { ShapeGeometry } from '@iwsdk/core';
 import { easeInCubic, easeOutBack, easeOutCubic } from '../core/ease.js';
 
 import { TITLE_DURATION, TITLE_HOLD, TITLE_IN, TITLE_OUT } from '../core/story.js';
-
-export type TitleId = 'croc' | 'bridge' | 'wolf';
-
-// A crocodile head on its rod, jaws open, facing right (stage units).
-const CROC_HEAD = [
-  'M -0.17 0.010 Q -0.12 0.030 -0.085 0.045 Q -0.068 0.084 -0.036 0.074 Q -0.016 0.068 -0.004 0.050',
-  'L 0.030 0.046 Q 0.045 0.053 0.060 0.045 L 0.100 0.040 Q 0.124 0.054 0.140 0.047',
-  'Q 0.163 0.041 0.166 0.026 Q 0.167 0.013 0.150 0.010 L -0.030 -0.002',
-  'L 0.118 -0.060 Q 0.140 -0.068 0.134 -0.082 Q 0.040 -0.066 -0.050 -0.040',
-  'Q -0.110 -0.030 -0.170 -0.030 Q -0.196 -0.010 -0.170 0.010 Z',
-].join(' ');
-
-function upperJawY(x: number): number {
-  return -0.002 + ((x + 0.03) / 0.18) * 0.012;
-}
-function lowerJawY(x: number): number {
-  return -0.002 - ((x + 0.03) / 0.148) * 0.058;
-}
-function topY(x: number): number {
-  return 0.01 + ((x + 0.17) / 0.085) * 0.035;
-}
-
-function crocTeeth(): string {
-  const parts: string[] = [];
-  for (const [x, len] of [
-    [0.0, 0.012],
-    [0.03, 0.014],
-    [0.06, 0.013],
-    [0.09, 0.014],
-    [0.125, 0.018],
-  ]) {
-    const y = upperJawY(x) + 0.003;
-    parts.push(`M ${x - 0.0075} ${y} L ${x + 0.0075} ${y} L ${x + 0.001} ${y - len} Z`);
-  }
-  for (const [x, len] of [
-    [0.012, 0.011],
-    [0.042, 0.013],
-    [0.072, 0.013],
-    [0.1, 0.015],
-  ]) {
-    const y = lowerJawY(x) - 0.003;
-    parts.push(`M ${x - 0.0065} ${y} L ${x + 0.0065} ${y} L ${x - 0.001} ${y + len} Z`);
-  }
-  // scutes along the back of the neck
-  for (const x of [-0.158, -0.132, -0.106]) {
-    const y = topY(x) - 0.003;
-    parts.push(`M ${x - 0.01} ${y} L ${x + 0.008} ${y} L ${x - 0.003} ${y + 0.016} Z`);
-  }
-  return parts.join(' ');
-}
+import type { TitleId } from '../core/story.js';
 
 function rod(x: number, y0: number, y1: number, r = 0.0045): string {
   return `M ${x - r} ${y0} L ${x + r} ${y0} L ${x + r * 0.8} ${y1} Q ${x} ${y1 - r} ${x - r * 0.8} ${y1} Z`;
@@ -104,6 +57,10 @@ export class TitleCard {
   private readonly cards: Record<TitleId, Group>;
   private readonly materials: Record<TitleId, ShaderMaterial[]>;
   private readonly wolf = new WolfPuppet();
+  private readonly bird = new BirdPuppet();
+  /** Where the finale card's bird holds its spark (stage units, this frame). */
+  readonly spark: [number, number] = [0, 0];
+  private readonly beakTmp: [number, number] = [0, 0];
   /** 0..1 current card alpha (the renderer adds the light disc behind it). */
   alpha = 0;
   scale = 1;
@@ -119,7 +76,8 @@ export class TitleCard {
     const croc = mk();
     const bridge = mk();
     const wolf = mk();
-    this.cards = { croc, bridge, wolf };
+    const finale = mk();
+    this.cards = { croc, bridge, wolf, finale };
     const cut = (): ShaderMaterial => createFlatMaterial(CH_CUTOUT, 1);
     const hole = (): ShaderMaterial => createFlatMaterial(CH_HOLE, 1);
 
@@ -128,7 +86,7 @@ export class TitleCard {
     const head = new Group();
     head.add(new Mesh(pathGeometry(CROC_HEAD + ' ' + crocTeeth(), 12), cm[0]));
     head.add(new Mesh(pathGeometry(rod(-0.115, -0.03, -0.24), 4), cm[1]));
-    head.add(new Mesh(new ShapeGeometry(circleShape(-0.043, 0.057, 0.0095, 20), 1), cm[2]));
+    head.add(new Mesh(new ShapeGeometry(circleShape(CROC_HEAD_EYE[0], CROC_HEAD_EYE[1], CROC_HEAD_EYE[2], 20), 1), cm[2]));
     head.rotation.z = 0.08;
     head.position.set(-0.03, 0.02, 0);
     croc.add(head);
@@ -145,13 +103,23 @@ export class TitleCard {
 
     // wolf: the show's own wolf puppet, sitting and howling
     const wm: ShaderMaterial[] = [];
-    this.wolf.update(-0.05, -0.14, 1, 'howl', 0, 0, 1, 0);
+    this.wolf.update(-0.03, -0.15, 1, 'howl', 0, 0, 1, 0);
     const holder = new Group();
-    holder.scale.set(1.1, 1.1, 1);
+    holder.scale.set(1.0, 1.0, 1);
     holder.add(this.wolf.group);
     wolf.add(holder);
     collectMaterials(this.wolf.group, wm);
-    this.materials = { croc: cm, bridge: bm, wolf: wm };
+
+    // the last light: a paper bird in flight, a spark in its beak (the renderer adds the spark's glow)
+    const fm: ShaderMaterial[] = [];
+    const birdHolder = new Group();
+    birdHolder.scale.set(FINALE_HOLDER[2], FINALE_HOLDER[2], 1);
+    birdHolder.position.set(FINALE_HOLDER[0], FINALE_HOLDER[1], 0);
+    birdHolder.add(this.bird.group);
+    finale.add(birdHolder);
+    this.bird.update(0, 0, 1, true, 0.18, 1, 0, 0, false);
+    collectMaterials(this.bird.group, fm);
+    this.materials = { croc: cm, bridge: bm, wolf: wm, finale: fm };
     this.group.visible = false;
   }
 
@@ -189,12 +157,23 @@ export class TitleCard {
     // a gentle bob, like a puppet held on its rod
     card.position.set(0, 0.012 * Math.sin(time * 2.1), 0);
     if (id === 'croc') card.children[0].rotation.z = 0.08 + 0.05 * Math.sin(time * 3.3);
-    if (id === 'wolf') this.wolf.update(-0.05, -0.14, 1, 'howl', 0, 0, 1, time);
+    if (id === 'wolf') this.wolf.update(-0.03, -0.15, 1, 'howl', 0, 0, 1, time);
+    if (id === 'finale') {
+      const tilt = 0.18 + 0.05 * Math.sin(time * 1.4);
+      this.bird.update(0, 0, 1, true, tilt, 1, 0, time * 0.5, false);
+      // the spark sits on the beak: bird -> holder -> card (scale and bob)
+      const b = this.bird.beak(0, 0, 1, tilt, this.beakTmp);
+      this.spark[0] = (FINALE_HOLDER[0] + b[0] * FINALE_HOLDER[2]) * sc;
+      this.spark[1] = (FINALE_HOLDER[1] + b[1] * FINALE_HOLDER[2]) * sc + card.position.y;
+    }
     for (const m of this.materials[id]) m.uniforms.uStrength.value = a;
   }
 }
 
-const TITLE_IDS: readonly TitleId[] = ['croc', 'bridge', 'wolf'];
+const TITLE_IDS: readonly TitleId[] = ['croc', 'bridge', 'wolf', 'finale'];
+
+/** The finale card's bird holder: x, y, scale (card units). */
+const FINALE_HOLDER: readonly [number, number, number] = [-0.05, -0.09, 1.45];
 
 function collectMaterials(root: Object3D, out: ShaderMaterial[]): void {
   root.traverse((o) => {

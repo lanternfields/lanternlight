@@ -452,13 +452,41 @@ export class AudioEngine {
         this.tone(wet, 170, now + 0.012, 0.16, 0.3, 'sine', 75);
         break;
       case 'eat': {
-        // a little gulp, then the swallowed firefly glows (a rising note)
+        // a little gulp, then a small glass chime (higher with each firefly):
+        // the swallowed firefly glows on in the crocodile's throat
         const i = Math.min(SCALE.length - 1, 2 + value);
         this.tone(wet, 240, now + 0.04, 0.12, 0.14, 'sine', 130);
         this.pluck(SCALE[i], now + 0.12, 0.3, wet, 1.6);
         this.pluck(SCALE[i] * 2, now + 0.17, 0.1, wet, 1.0);
+        this.tone(wet, SCALE[i] * 4, now + 0.2, 1.1, 0.045, 'sine');
+        this.tone(wet, SCALE[i] * 6.02, now + 0.21, 0.7, 0.02, 'sine');
         break;
       }
+      case 'chirp': {
+        // the paper bird: two or three quick rising peeps
+        const n = value === 2 ? 3 : 2;
+        const base = 2300 + (value === 1 ? 300 : 0);
+        for (let k = 0; k < n; k++) this.tone(wet, base + k * 180, now + k * 0.085, 0.06, 0.035, 'sine', base + 900 + k * 180);
+        break;
+      }
+      case 'perch':
+        // it lands: a soft flutter, then a settled little trill
+        this.noiseHit(wet, now, 0.18, 0.05, 'bandpass', 2600, 1400);
+        [7, 9].forEach((i, k) => this.pluck(SCALE[i] * 2, now + 0.12 + k * 0.07, 0.12, wet, 1.2));
+        break;
+      case 'spark': {
+        // the lantern gives up its spark: a rising shimmer from the lantern itself
+        const lp = this.pannerAt(this.lanternPos);
+        this.noiseHit(lp, now, 0.6, 0.05, 'highpass', 4200, 7000);
+        this.tone(lp, SCALE[4] * 2, now, 1.4, 0.05, 'sine', SCALE[9] * 2);
+        [4, 7, 9].forEach((i, k) => this.pluck(SCALE[i] * 2, now + 0.9 + k * 0.08, 0.12, wet, 2.2));
+        break;
+      }
+      case 'lightsUp':
+        // the lamplight goes home with the bird: a long, soft falling chord
+        [9, 7, 4, 2].forEach((i, k) => this.pluck(SCALE[i], now + k * 0.22, 0.14, wet, 3.2));
+        this.tone(wet, SCALE[0] / 2, now + 0.3, 4.5, 0.05);
+        break;
       case 'iconTick':
         this.pluck(SCALE[Math.min(9, 3 + Math.floor(value * 4))], now, 0.12, wet, 0.5);
         break;
@@ -575,8 +603,9 @@ export class AudioEngine {
           [0, 2, 4, 7],
           [2, 4, 5, 7],
           [0, 3, 4, 8],
+          [7, 4, 2, 0],
         ];
-        const ph = phrases[Math.max(0, Math.min(2, value))];
+        const ph = phrases[Math.max(0, Math.min(3, value))];
         this.tone(wet, SCALE[0] / 2, now, 2.6, 0.07);
         ph.forEach((i, k) => this.pluck(SCALE[i], now + 0.12 + k * 0.14, 0.22 - k * 0.02, wet, 1.8));
         this.noiseHit(wet, now, 0.5, 0.04, 'bandpass', 2400, 600);
