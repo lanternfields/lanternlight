@@ -92,6 +92,8 @@ export class App {
   private lastLineAlpha = 0;
   /** Music level of the last frame (the capture's soundtrack replays it). */
   lastMusic = 0;
+  /** 0..1 the ending's amber room glow (eased). */
+  private hearth = 0;
   /** The 3D spark from the lantern to the wall (finale). */
   private readonly spark = new LanternSpark();
   private readonly sparkFrom = new Vector3();
@@ -165,6 +167,8 @@ export class App {
   readonly capture: boolean;
   /** Recording shot (set by the capture script): 'wide' and 'inset' show the stand-in hands whole. */
   captureShot: 'close' | 'wide' | 'inset' = 'close';
+  /** Recordings: 0..1 how much of the stand-in hands to show (set by the capture with the camera move). */
+  standInFade = 1;
   private headLocked = false;
   private readonly lockedHead = new V3();
   private readonly lockedFwd = new V3();
@@ -714,6 +718,7 @@ export class App {
     const mask = this.emulated && this.session.mode !== 'vr' && this.captureShot === 'close';
     // recordings: a soft key light on the stand-in hands
     this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? 1 : 0;
+    this.standIns.material.uniforms.uFade.value = this.capture && this.emulated ? this.standInFade : 1;
     this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
     // recordings: a little table under a floating lantern (never on a headset)
     {
@@ -776,6 +781,10 @@ export class App {
     // opaque (drawn first, under the lantern and hands) only in the capture look
     if (this.dim.material.transparent === fake) this.dim.material.transparent = !fake;
     du.uHouse.value = 1 - view.dim;
+    // the ending's warm room: the lantern's amber glow fills it as the house lights return
+    const ending = view.scene === 'finale' && (this.story.beat === 'lightsUp' || this.story.beat === 'goodnight');
+    this.hearth += ((ending ? 1 - view.dim : 0) - this.hearth) * (1 - Math.exp(-2 * dt));
+    du.uHearth.value = this.hearth;
     this.dim.mesh.position.set(this.head.x, this.head.y, this.head.z);
 
     this.textDt = dt;

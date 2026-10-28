@@ -224,6 +224,7 @@ export class RoomDim {
         uFake: { value: 0 },
         uFloorY: { value: 0 },
         uHouse: { value: 1 },
+        uHearth: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vWorld;
@@ -247,6 +248,7 @@ export class RoomDim {
         uniform float uFake;
         uniform float uFloorY;
         uniform float uHouse;
+        uniform float uHearth;
         varying vec3 vWorld;
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float vnoise(vec2 p) {
@@ -288,14 +290,15 @@ export class RoomDim {
             vec3 wp = uOrigin + uRight * st.x + uUp * st.y;
             float dl = length(wp - uLantern);
             spill += 0.1 / (1.0 + dl * dl * 6.0);
-            col = albedo * (0.045 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
+            // house lights are warm lamplight, never a cold grey (the show ends here)
+            col = albedo * (0.045 + vec3(0.21, 0.165, 0.12) * uHouse + lampCol * spill * (uLanternGlow + 0.35 * uHearth));
           } else if (tf < 1e8) {
             vec3 hit = ro + rd * tf;
             float grain = vnoise(vec2(hit.x * 1.5, hit.z * 26.0)) * 0.5 + vnoise(hit.xz * 6.0) * 0.5;
             vec3 wood = vec3(0.16, 0.1, 0.065) * (0.8 + 0.3 * grain);
             float dl = length(hit.xz - uLantern.xz);
             float spill = 0.75 / (1.0 + dl * dl * 4.0) + 0.12 * exp(-pow(length(hit - uOrigin) / (uHeight * 2.5), 2.0));
-            col = wood * (0.045 + 0.2 * uHouse + lampCol * spill * uLanternGlow);
+            col = wood * (0.045 + vec3(0.21, 0.165, 0.12) * uHouse + lampCol * spill * (uLanternGlow + 0.35 * uHearth));
           }
           return vec4(col, 1.0);
         }
@@ -332,6 +335,11 @@ export class RoomDim {
           float w = clamp(max(spillWall * 0.75, spill * 0.6), 0.0, 1.0);
           vec3 col = mix(house, lampSpill, w);
           a = max(a, w * 0.42 * step(0.001, uDim));
+          // the ending: as the house lights come back, the lantern's glow fills
+          // the real room with a soft amber (warmest near the lantern)
+          float hearth = uHearth * (0.1 + 0.16 * exp(-miss * miss / 0.6));
+          col = mix(col, vec3(0.62, 0.34, 0.13), hearth / max(a + hearth, 1e-3));
+          a = max(a, hearth);
           gl_FragColor = vec4(col, a);
         }
       `,

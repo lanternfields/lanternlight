@@ -51,6 +51,7 @@ const FRAG = /* glsl */ `
   uniform float uGlow;
   uniform float uKey;
   uniform float uMask;
+  uniform float uFade;
   uniform vec3 uSO;
   uniform vec3 uSN;
   uniform vec3 uSR;
@@ -60,6 +61,8 @@ const FRAG = /* glsl */ `
   varying vec3 vW;
   float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
   void main() {
+    // recordings: a dithered dissolve as the camera moves in to the stage
+    if (uFade < 0.999 && hash(gl_FragCoord.xy + 17.0) >= uFade) discard;
     if (uMask > 0.5) {
       // recordings: keep the stand-in out of the stage (its shadow is what
       // matters there), with a soft dithered edge
@@ -218,6 +221,7 @@ export class HandStandIns {
       uGlow: { value: 1 },
       uKey: { value: 0 },
       uMask: { value: 0 },
+      uFade: { value: 1 },
       uSO: { value: new Vector3() },
       uSN: { value: new Vector3(0, 0, 1) },
       uSR: { value: new Vector3(1, 0, 0) },

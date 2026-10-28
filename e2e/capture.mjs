@@ -216,6 +216,9 @@ while (!last.done && last.t < maxSeconds) {
     const w = r.shot ? r.shot.wide : 0;
     window.__setCamera(sh.close, sh.wide, w);
     app.captureShot = w > 0.02 ? 'wide' : 'close';
+    // the stand-in hands dissolve away well before the camera reaches the stage close-up
+    const sf = Math.max(0, Math.min(1, (w - 0.45) / 0.35));
+    app.standInFade = sf * sf * (3 - 2 * sf);
     window.__vclock.step(1000 / fps);
     r.audio = [app.story.view.flame, app.lastMusic, app.story.events.map((e) => [e.type, e.s, e.t, e.value]), app.audio.ambience];
     const rb = app.ribbonStats;
@@ -232,6 +235,7 @@ while (!last.done && last.t < maxSeconds) {
     await page.evaluate((fresh) => {
       const app = window.__lantern.app;
       app.captureShot = 'inset';
+      app.standInFade = 1;
       const ins = window.__insetShot(fresh);
       window.__setCamera(ins, ins, 0);
       window.__vclock.step(0);

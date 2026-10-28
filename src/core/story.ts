@@ -1616,6 +1616,8 @@ export class Story {
   static readonly BIRD_FALLBACK_X = -0.07;
   /** Where the lantern's spark meets the bird: the heart of the lamplight. */
   static readonly SPARK_S = 0.0;
+  /** The lantern's flame once the bird has the light: low, warm, still glowing. */
+  static readonly HEARTH_FLAME = 0.4;
   static readonly SPARK_T = 0.02;
 
   /** True while the story wants hand poses classified (the finale's pointing finger). */
@@ -1831,7 +1833,7 @@ export class Story {
         // off it goes with the light, up and out of the pool; the lantern dims
         // up first (clear over Pip), then away to the left
         this.flyBird(t < 0.7 ? Story.SPARK_S - 0.08 : -1.1, 0.02, 2.0, dt);
-        v.flame = approach(v.flame, 0.2, 0.8, dt);
+        v.flame = approach(v.flame, Story.HEARTH_FLAME, 0.8, dt);
         v.light = approach(v.light, 0.45, 0.6, dt);
         v.warmth = approach(v.warmth, 0, 1, dt);
         if (b.x < -0.98 || t > 5) {
@@ -1849,7 +1851,8 @@ export class Story {
         v.light = Math.min(v.light, 0.45 * (1 - u));
         v.moon.visible = Math.min(v.moon.visible, 1 - u);
         v.dim = 1 - u;
-        v.flame = approach(v.flame, 0.14, 0.8, dt);
+        // the lantern stays lit low and warm: a night-light for the room
+        v.flame = approach(v.flame, Story.HEARTH_FLAME, 0.8, dt);
         v.warmth = 0;
         if (t > 3.5 && this.linesIdle()) {
           this.finaleSeen = true;
@@ -1863,7 +1866,7 @@ export class Story {
         v.light = 0;
         v.dim = 0;
         v.moon.visible = 0;
-        v.flame = approach(v.flame, 0.14, 0.8, dt);
+        v.flame = approach(v.flame, Story.HEARTH_FLAME, 0.8, dt);
         // the stories wake again when you reach into the lantern's light
         const a = this.presentActor(model);
         this.wake = a ? this.wake + dt : 0;

@@ -237,7 +237,8 @@ describe('story v2: the last light (finale)', () => {
     expect(story.finaleSeen).toBe(true);
     // the lantern dims and the room's dimming lifts
     expect(minDim).toBe(0);
-    expect(minFlame).toBeLessThan(0.3);
+    // ...to a low, warm night-light glow
+    expect(minFlame).toBeLessThan(0.5);
     expect(lines.seen).toEqual([COPY.F1, COPY.F2, COPY.F3, COPY.F4, COPY.F5]);
     expect(spacing.worst, spacing.where).toBeGreaterThanOrEqual(0);
   });

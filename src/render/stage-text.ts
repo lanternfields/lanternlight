@@ -134,34 +134,32 @@ export class StageText {
     return (units * this.spec.w) / this.spec.units;
   }
 
-  /** Splits into at most two rows that fit `maxW` px. */
-  private wrap(text: string, maxW: number): string[] {
-    const ctx = this.ctx;
-    if (ctx.measureText(text).width <= maxW) return [text];
-    const words = text.split(' ');
-    let best: string[] = [text];
-    let bestScore = Infinity;
-    for (let i = 1; i < words.length; i++) {
-      const a = words.slice(0, i).join(' ');
-      const b = words.slice(i).join(' ');
-      const wa = ctx.measureText(a).width;
-      const wb = ctx.measureText(b).width;
-      const score = Math.max(wa, wb) + Math.abs(wa - wb) * 0.15 + (a.endsWith('.') || a.endsWith(',') ? -60 : 0);
-      if (score < bestScore) {
-        bestScore = score;
-        best = [a, b];
-      }
+  /**
+   * The rows as authored (copy.ts breaks lines at phrase boundaries with
+   * "\n"; nothing is re-wrapped here), and the font size that makes the
+   * widest row fit `maxW` px (never larger than `fontPx`).
+   */
+  private layout(text: string, fontPx: number, maxW: number, setFont: (px: number) => void): { rows: string[]; fontPx: number } {
+    const rows = text.split('\n');
+    setFont(fontPx);
+    let widest = 0;
+    for (const r of rows) widest = Math.max(widest, this.ctx.measureText(r).width);
+    // fit the widest row, and the rows' height (canvas height ~ two rows)
+    const k = Math.min(1, maxW / Math.max(1, widest), (this.canvas.height * 0.92) / (rows.length * fontPx * 1.2));
+    if (k < 1) {
+      fontPx *= k;
+      setFont(fontPx);
     }
-    return best;
+    return { rows, fontPx };
   }
 
   private drawBanner(text: string): void {
     const { ctx, canvas } = this;
-    const fontPx = this.px(this.spec.em);
-    ctx.font = `italic ${fontPx}px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const rows = this.wrap(text, canvas.width * 0.8);
+    const { rows, fontPx } = this.layout(text, this.px(this.spec.em), canvas.width * 0.8, (px) => {
+      ctx.font = `italic ${px}px ${FONT}`;
+    });
     let tw = 0;
     for (const r of rows) tw = Math.max(tw, ctx.measureText(r).width);
     const rowH = fontPx * 1.18;
@@ -220,12 +218,12 @@ export class StageText {
 
   private drawPrompt(text: string): void {
     const { ctx, canvas } = this;
-    const fontPx = this.px(this.spec.em * 1.25);
-    this.setSmallCaps(fontPx);
-    (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${Math.round(fontPx * 0.06)}px`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const rows = this.wrap(text, canvas.width * 0.94);
+    const { rows, fontPx } = this.layout(text, this.px(this.spec.em * 1.25), canvas.width * 0.94, (px) => {
+      this.setSmallCaps(px);
+      (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${Math.round(px * 0.06)}px`;
+    });
     const rowH = fontPx * 1.02;
     const y0 = canvas.height / 2 - (rowH * (rows.length - 1)) / 2;
     // a soft dark halo keeps it legible on any wall
