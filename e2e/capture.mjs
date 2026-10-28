@@ -21,8 +21,8 @@ const yaw = Number(process.argv[3] ?? 90);
 const name = process.argv[4] ?? 'capture';
 const maxSeconds = Number(process.argv[5] ?? 240);
 const FPS = 60;
-const W = 1280;
-const H = 720;
+const W = Number(process.env.CAPTURE_W ?? 1920);
+const H = Number(process.env.CAPTURE_H ?? 1080);
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const framesDir = path.join(OUT, `${name}-frames`);
 fs.rmSync(framesDir, { recursive: true, force: true });
@@ -64,7 +64,7 @@ await page.evaluate(
       } else el.style.display = 'none';
     }
     const d = window.IWER_DEVICE;
-    d.fovy = (62 * Math.PI) / 180;
+    d.fovy = (50 * Math.PI) / 180; // frame the stage: the show fills the shot
     d.position.x = 0;
     d.position.y = 1.25;
     d.position.z = 0;

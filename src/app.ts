@@ -30,6 +30,7 @@ import { SceneId, Story } from './core/story.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
 import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
+import { HandStandIns } from './render/hand-stand-in.js';
 import { TextLabel } from './render/text.js';
 import { LanternMenu, MenuAction } from './render/lantern-menu.js';
 import { RodPuppetVisual } from './render/rod-puppet.js';
@@ -77,8 +78,14 @@ export class App {
   readonly composite: StageComposite;
   readonly dim = new RoomDim();
   readonly lantern = new Lantern();
-  readonly caption = new TextLabel(1400, 120, 0.05);
-  readonly iconLabels = [new TextLabel(900, 110, 0.04), new TextLabel(900, 110, 0.04), new TextLabel(900, 110, 0.04)];
+  readonly caption = new TextLabel(2400, 200, 0.05);
+  /** Lantern-lit stand-ins for your hands where passthrough can't show them. */
+  readonly standIns = new HandStandIns();
+  private readonly flameW = new Vector3();
+  readonly iconLabels = [new TextLabel(1600, 200, 0.04), new TextLabel(1600, 200, 0.04), new TextLabel(1600, 200, 0.04)];
+  /** Caption shown now and its eased opacity (captions cross-fade, never pop). */
+  private capShown = '';
+  private capAlpha = 0;
   readonly audio = new AudioEngine();
   readonly menu: LanternMenu;
   readonly theatre = new VirtualTheatre();
@@ -151,6 +158,7 @@ export class App {
     add(this.menu.group);
     add(this.hud.mesh);
     add(this.theatre.group);
+    add(this.standIns.group);
     const grips = world.playerSpaceEntities.gripSpaces;
     world.createTransformEntity(this.puppets[0].group, { parent: grips.left, persistent: true });
     world.createTransformEntity(this.puppets[1].group, { parent: grips.right, persistent: true });
@@ -188,6 +196,7 @@ export class App {
       this.menu.group.visible = false;
       for (const p of this.puppets) p.group.visible = false;
       for (const l of this.iconLabels) l.mesh.visible = false;
+      this.standIns.group.visible = false;
     }
   }
 
@@ -640,6 +649,8 @@ export class App {
 
     // Composite + room + lantern.
     this.lantern.update(time, view.flame, reduce);
+    this.lantern.flamePosition(this.flameW);
+    this.standIns.update(this.emulated || this.session.mode === 'vr', this.hands, this.flameW, view.flame);
     for (let i = 0; i < 2; i++) {
       const vis = this.rods[i].connected;
       this.puppets[i].group.visible = vis;
@@ -661,6 +672,7 @@ export class App {
     du.uLanternGlow.value = view.flame;
     this.dim.mesh.position.set(this.head.x, this.head.y, this.head.z);
 
+    this.textDt = dt;
     this.updateText(view.caption);
     this.updateHud(dt);
 
@@ -679,24 +691,38 @@ export class App {
     this.cpuStats.push(performance.now() - t0);
   }
 
+  private textDt = 1 / 72;
+
   private updateText(caption: string): void {
     const fr = this.placement!.frame;
     const view = this.story.view;
-    const showCaption = this.settings.captions && caption.length > 0;
-    this.caption.set(showCaption ? caption : '');
-    if (showCaption) {
+    const want = this.settings.captions ? caption : '';
+    // cross-fade: fade the old caption out (0.18 s), switch, fade the new one in (0.35 s)
+    const dt = this.textDt;
+    if (want !== this.capShown) {
+      this.capAlpha = Math.max(0, this.capAlpha - dt / 0.18);
+      if (this.capAlpha <= 0 || this.capShown === '') {
+        this.capShown = want;
+        this.caption.set(want);
+      }
+    } else if (want) {
+      this.capAlpha = Math.min(1, this.capAlpha + dt / 0.35);
+    }
+    if (this.capShown) {
       const p = this.tmpV3;
-      stageToWorld(fr, 0, -0.5 - STAGE_PAD * 0.45, p);
+      stageToWorld(fr, 0, -0.5 - STAGE_PAD * 0.5, p);
       this.caption.mesh.position.set(p.x + fr.normal.x * 0.01, p.y + fr.normal.y * 0.01, p.z + fr.normal.z * 0.01);
       this.caption.mesh.quaternion.copy(this.composite.mesh.quaternion);
-      const s = fr.height * 0.075;
-      this.caption.mesh.scale.set(s * (1400 / 120), s, 1);
-      this.caption.setOpacity(1 - view.fade);
-    }
+      const s = fr.height * 0.088;
+      this.caption.mesh.scale.set(s * (2400 / 200), s, 1);
+      const a = this.capAlpha;
+      this.caption.setOpacity(a * a * (3 - 2 * a) * (1 - view.fade));
+    } else this.caption.setOpacity(0);
     for (let i = 0; i < this.iconLabels.length; i++) {
       const icon = view.icons[i];
       const label = this.iconLabels[i];
-      const show = view.scene === 'menu' && icon.visible > 0.05;
+      // wordless by default: a tale's name appears only while you choose it
+      const show = view.scene === 'menu' && icon.visible > 0.05 && icon.fill > 0.02;
       label.set(show ? icon.label : '');
       if (!show) continue;
       const p = this.tmpV3;
@@ -704,8 +730,9 @@ export class App {
       label.mesh.position.set(p.x + fr.normal.x * 0.01, p.y + fr.normal.y * 0.01, p.z + fr.normal.z * 0.01);
       label.mesh.quaternion.copy(this.composite.mesh.quaternion);
       const s = fr.height * 0.085;
-      label.mesh.scale.set(s * (900 / 110), s, 1);
-      label.setOpacity(icon.visible * (1 - view.fade));
+      label.mesh.scale.set(s * (1600 / 200), s, 1);
+      const f = Math.min(1, icon.fill * 4);
+      label.setOpacity(f * f * (3 - 2 * f) * icon.visible * (1 - view.fade));
     }
   }
 
@@ -850,7 +877,7 @@ export class App {
         this.toggleMenu(false);
         break;
       case 'light': {
-        const steps = [0.35, 0.65, 0.85];
+        const steps = [0.4, 0.75, 0.9];
         const i = steps.findIndex((v) => v > this.settings.dimLevel + 0.01);
         this.updateSettings({ dimLevel: i < 0 ? steps[0] : steps[i] });
         break;

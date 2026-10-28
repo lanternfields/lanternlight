@@ -24,7 +24,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  dimLevel: 0.65,
+  dimLevel: 0.75,
   stageScale: 1,
   gentle: false,
   highContrast: false,

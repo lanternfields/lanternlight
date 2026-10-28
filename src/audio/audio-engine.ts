@@ -392,6 +392,20 @@ export class AudioEngine {
         vib.stop(now + 2.5);
         break;
       }
+      case 'title': {
+        // the curtain opens on a tale: a low bell, then a short rising phrase
+        // whose shape differs per tale (value: 0 croc, 1 bridge, 2 wolf)
+        const phrases = [
+          [0, 2, 4, 7],
+          [2, 4, 5, 7],
+          [0, 3, 4, 8],
+        ];
+        const ph = phrases[Math.max(0, Math.min(2, value))];
+        this.tone(wet, SCALE[0] / 2, now, 2.6, 0.07);
+        ph.forEach((i, k) => this.pluck(SCALE[i], now + 0.12 + k * 0.14, 0.22 - k * 0.02, wet, 1.8));
+        this.noiseHit(wet, now, 0.5, 0.04, 'bandpass', 2400, 600);
+        break;
+      }
       case 'bow':
         [2, 4, 7].forEach((i, k) => this.pluck(SCALE[i], now + k * 0.05, 0.22, wet, 2));
         break;

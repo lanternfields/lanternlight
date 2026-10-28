@@ -74,7 +74,7 @@ await page.evaluate(() => {
     } else el.style.display = 'none';
   }
   const d = window.IWER_DEVICE;
-  d.fovy = (62 * Math.PI) / 180;
+  d.fovy = ((Number(window.__FOVY) || 50) * Math.PI) / 180;
   d.remote.dispatch('set_input_mode', { mode: 'hand' });
   d.remote.dispatch('set_connected', { device: 'hand-left', connected: false });
   window.__lantern.app.hud.enabled = false;
@@ -93,14 +93,37 @@ await page.evaluate(() => {
 });
 
 const shots = [];
+const motion = [];
 const t0 = Date.now();
 let r = { done: false, t: 0 };
 while (!r.done && r.t < 200) {
   r = await page.evaluate((fps) => {
     const res = window.__director.tick(1 / fps);
     window.__vclock.step(1000 / fps);
+    // per-frame motion samples (STYLE_GUIDE 4: prove there is no popping or jitter)
+    const app = window.__lantern.app;
+    const v = app.story.view;
+    const a = app.model.actors[1];
+    const ffi = v.fireflies.findIndex((f) => f.alive);
+    const ff = ffi >= 0 ? v.fireflies[ffi] : null;
+    const co = app.stage.debugCroc ? app.stage.debugCroc() : null;
+    res.m = {
+      t: res.t,
+      scene: v.scene,
+      fade: v.fade,
+      rabbit: v.rabbit.visible > 0.5 ? [v.rabbit.x, v.rabbit.y, v.rabbit.squash] : null,
+      wolf: v.wolf.visible > 0.5 ? [v.wolf.x, v.wolf.y] : null,
+      firefly: ff ? [ff.x, ff.y] : null,
+      fireflyId: ffi,
+      hand: a.present ? [a.tipS, a.tipT] : null,
+      croc: co,
+      ghost: v.ghost.visible,
+      icon: v.icons[0].visible,
+      title: v.title.id ? v.title.t : -1,
+    };
     return res;
   }, FPS);
+  motion.push(r.m);
   if (r.snap) {
     const file = path.join(dir, `${String(shots.length + 1).padStart(2, '0')}-${r.snap}.png`);
     await page.screenshot({ path: file });
@@ -153,6 +176,10 @@ await look(hud, 0.3, 'tester-card');
 await browser.close();
 
 fs.writeFileSync(path.join(dir, 'shots.json'), JSON.stringify({ label, room, yaw, W, H, shots, errors }, null, 2));
+fs.writeFileSync(path.join(dir, 'motion.json'), JSON.stringify({ fps: FPS, samples: motion }));
+const mp = spawnSync('python', ['-I', path.join(here, 'tools', 'motion_plot.py'), path.join(dir, 'motion.json'), path.join(OUT, 'style', `${label}-motion`)], { encoding: 'utf8' });
+console.log(mp.stdout.trim());
+if (mp.status !== 0) console.log('motion plot failed', mp.stderr);
 // Contact sheet (PIL): 4 columns, labelled.
 const py = spawnSync('python', ['-I', path.join(here, 'tools', 'contact_sheet.py'), dir, path.join(OUT, 'style', `${label}-sheet.png`), '4'], { encoding: 'utf8' });
 if (py.status !== 0) console.log('contact sheet failed', py.stderr);

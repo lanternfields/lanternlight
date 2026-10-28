@@ -14,7 +14,7 @@
 import { Capsule2D, ShadowModel, Actor } from './shadow-model.js';
 import { Rabbit, RabbitWorld } from './rabbit.js';
 import { clamp, dist2, mulberry32, pointSegmentDistance } from './math.js';
-import { easeInCubic } from './ease.js';
+import { clamp01, easeInCubic, easeInOutSine } from './ease.js';
 import { PoseId } from './hand-features.js';
 import { Wolf, WolfState } from './wolf.js';
 
@@ -41,7 +41,8 @@ export type SoundEvent =
   | 'whimper'
   | 'wolfFlee'
   | 'howl'
-  | 'bow';
+  | 'bow'
+  | 'title';
 
 export interface StoryEvent {
   type: SoundEvent;
@@ -106,7 +107,20 @@ export interface StageView {
   /** Water line (stage t) or NaN. */
   waterY: number;
   /** Croc overlay on an actor (eye + teeth). */
-  croc: { visible: number; eyeS: number; eyeT: number; upperS: number; upperT: number; lowerS: number; lowerT: number; open: number };
+  croc: {
+    visible: number;
+    eyeS: number;
+    eyeT: number;
+    upperS: number;
+    upperT: number;
+    lowerS: number;
+    lowerT: number;
+    open: number;
+    /** Index of the actor wearing the crocodile (-1 = none). */
+    actor: number;
+    /** Count of fireflies swallowed (the renderer starts a swallow glow when it changes). */
+    gulps: number;
+  };
   /** Celebration sparkles 0..1. */
   sparkle: number;
   /** Short caption; empty = none. */
@@ -121,7 +135,20 @@ export interface StageView {
   moon: { visible: number; s: number; t: number; r: number; glow: number };
   /** How big your shadow is vs. how big it needs to be (wolf tale HUD hint), 0..1+. */
   courage: number;
+  /** The wordless title card at the start of a tale ('' = none); t = seconds into it. */
+  title: { id: TaleId | ''; t: number };
+  /** 0..1 how much of the scene's set is shown (it fades in as the title card leaves). */
+  set: number;
 }
+
+/** Title card timing (STYLE_GUIDE 3/4): in, hold, out (seconds). */
+export const TITLE_IN = 0.4;
+export const TITLE_HOLD = 1.4;
+export const TITLE_OUT = 0.5;
+export const TITLE_DURATION = TITLE_IN + TITLE_HOLD + TITLE_OUT;
+/** Scene transitions: fade out, then in (seconds). */
+export const FADE_OUT = 0.6;
+export const FADE_IN = 0.6;
 
 export interface StorySettings {
   /** Bigger targets, faster dwell, stronger assists. */
@@ -186,7 +213,7 @@ function createView(): StageView {
     scenery,
     sceneryCount: 0,
     waterY: NaN,
-    croc: { visible: 0, eyeS: 0, eyeT: 0, upperS: 0, upperT: 0, lowerS: 0, lowerT: 0, open: 0 },
+    croc: { visible: 0, eyeS: 0, eyeT: 0, upperS: 0, upperT: 0, lowerS: 0, lowerT: 0, open: 0, actor: -1, gulps: 0 },
     sparkle: 0,
     caption: '',
     progress: 0,
@@ -194,6 +221,8 @@ function createView(): StageView {
     wolf: { visible: 0, x: 1, y: GROUND_T, dir: -1, state: 'away', crouch: 0, phase: 0, fear: 0 },
     moon: { visible: 0, s: 0.46, t: 0.3, r: 0.075, glow: 0 },
     courage: 0,
+    title: { id: '', t: 0 },
+    set: 1,
   };
 }
 
@@ -222,6 +251,7 @@ export class Story {
   private rng = mulberry32(7);
   private pendingScene: SceneId | null = null;
   private transition = 0;
+  private fadeIn = 1;
   /** Crocodile tale */
   private eaten = 0;
   private readonly eatTarget = 7;
@@ -295,6 +325,12 @@ export class Story {
       this.wolf.state = 'away';
     }
     this.setScenery(scene);
+    const tale = scene === 'croc' || scene === 'bridge' || scene === 'wolf';
+    this.view.title.id = tale ? scene : '';
+    this.view.title.t = 0;
+    if (tale) this.emit('title', 0, 0, scene === 'croc' ? 0 : scene === 'bridge' ? 1 : 2);
+    this.view.set = tale ? 0 : 1;
+    this.view.croc.actor = -1;
     switch (scene) {
       case 'intro':
         this.setBeat('dim');
@@ -358,7 +394,12 @@ export class Story {
       c.actor = -1;
     };
     v.waterY = NaN;
-    if (scene === 'intro' || scene === 'menu' || scene === 'finale') {
+    if (scene === 'croc') {
+      // The crocodile's river: low earth banks at both ends, water between.
+      seg(-0.8, GROUND_T - 0.03, -0.55, GROUND_T - 0.05, 0.05);
+      seg(0.55, GROUND_T - 0.05, 0.8, GROUND_T - 0.03, 0.05);
+      v.waterY = GROUND_T + 0.005;
+    } else if (scene === 'intro' || scene === 'menu' || scene === 'finale') {
       // A low ground strip across the stage (theatre floor).
       seg(-0.78, GROUND_T - 0.03, 0.78, GROUND_T - 0.03, 0.03);
     } else if (scene === 'wolf') {
@@ -445,18 +486,31 @@ export class Story {
 
     // Scene transitions: fade out, switch, fade in.
     if (this.pendingScene) {
-      this.transition += dt / 0.7;
-      v.fade = clamp(this.transition, 0, 1);
+      this.transition += dt / FADE_OUT;
+      v.fade = Math.max(v.fade, easeInOutSine(this.transition));
       if (this.transition >= 1) {
         const next = this.pendingScene;
         this.pendingScene = null;
         this.enter(next);
+        this.fadeIn = 0;
       }
+    } else if (this.fadeIn < 1) {
+      this.fadeIn = Math.min(1, this.fadeIn + dt / FADE_IN);
+      v.fade = Math.min(v.fade, 1 - easeInOutSine(this.fadeIn));
     } else {
-      v.fade = approach(v.fade, 0, 5, dt);
+      v.fade = 0;
     }
 
     v.ghost.phase += dt;
+    if (v.title.id) {
+      this.updateTitle(dt);
+      if (v.title.id) {
+        this.syncWolfView();
+        this.syncRabbitView();
+        v.sparkle = approach(v.sparkle, 0, 1.2, dt);
+        return;
+      }
+    }
     switch (this.scene) {
       case 'intro':
         this.updateIntro(dt, model);
@@ -480,6 +534,31 @@ export class Story {
     this.syncWolfView();
     this.syncRabbitView();
     v.sparkle = approach(v.sparkle, 0, 1.2, dt);
+  }
+
+  /**
+   * The wordless title card: the stage holds still while the card shows, then
+   * the set fades in as it leaves and the tale begins (its beat clock restarts).
+   */
+  private updateTitle(dt: number): void {
+    const v = this.view;
+    v.title.t += dt;
+    v.light = 1;
+    v.dim = 1;
+    v.flame = 1;
+    v.caption = '';
+    v.ghost.visible = approach(v.ghost.visible, 0, 6, dt);
+    v.croc.visible = approach(v.croc.visible, 0, 6, dt);
+    const out = (v.title.t - TITLE_IN - TITLE_HOLD) / TITLE_OUT;
+    v.set = easeInOutSine(clamp01(out));
+    if (this.scene === 'bridge' || this.scene === 'wolf') v.rabbit.visible = v.set;
+    if (this.scene === 'wolf') v.moon.visible = 0;
+    if (v.title.t >= TITLE_DURATION) {
+      v.title.id = '';
+      v.set = 1;
+      this.beatTime = 0;
+      this.sceneTime = 0;
+    }
   }
 
   private syncRabbitView(): void {
@@ -674,9 +753,11 @@ export class Story {
     // Generous: any part of your hand's shadow within ~a third of the icon's
     // radius counts (spread fingers leave gaps); the dwell prevents accidents.
     const reach = this.settings.gentle ? 0.5 : 0.35;
-    for (const icon of v.icons) {
+    for (let ii = 0; ii < v.icons.length; ii++) {
+      const icon = v.icons[ii];
       icon.completed = this.progress.completed[icon.id];
-      icon.visible = approach(icon.visible, this.sceneTime > 0.4 ? 1 : 0, 3, dt);
+      // linear 0..1 over 0.5 s, staggered 0.12 s; the renderer eases it
+      icon.visible = clamp01((this.sceneTime - 0.4 - ii * 0.12) / 0.5);
       if (this.pendingScene) continue;
       const d = model.distanceToShadow(icon.s, icon.t);
       const touching = d < icon.r * reach - TOUCH_DEPTH;
@@ -709,9 +790,10 @@ export class Story {
     let f: FireflyView | null = null;
     for (const x of this.view.fireflies) if (!x.alive && x.eaten === 0 && !f) f = x;
     if (!f) return;
+    // inside the lamplight, where the crocodile can be seen catching them
     const side = this.rng() < 0.5 ? -1 : 1;
-    f.x = side * (0.46 + this.rng() * 0.08);
-    f.y = -0.12 + this.rng() * 0.38;
+    f.x = side * (0.26 + this.rng() * 0.14);
+    f.y = -0.1 + this.rng() * 0.32;
     f.alive = true;
     f.glow = 0;
     f.eaten = 0;
@@ -726,6 +808,7 @@ export class Story {
     // Croc overlay follows the active actor's mouth.
     if (actor) {
       v.croc.visible = approach(v.croc.visible, 1, 6, dt);
+      v.croc.actor = model.actors.indexOf(actor);
       v.croc.eyeS = actor.knuckleS;
       v.croc.eyeT = actor.knuckleT + 0.035;
       v.croc.upperS = actor.upperS;
@@ -785,8 +868,8 @@ export class Story {
           }
         }
         // fireflies stay inside the lamplight
-        f.x = clamp(f.x + vx * dt, -0.5, 0.5);
-        f.y = clamp(f.y + vy * dt, -0.24, 0.34);
+        f.x = clamp(f.x + vx * dt, -0.44, 0.44);
+        f.y = clamp(f.y + vy * dt, -0.2, 0.28);
       }
       // Chomp! A firefly is caught if it is anywhere along the open jaws
       // (recorded while the mouth was open) or near where the jaws met.
@@ -818,6 +901,7 @@ export class Story {
             this.stats.eaten++;
             this.progress.firefliesEaten++;
             this.emit('eat', f.x, f.y, this.eaten);
+            v.croc.gulps++;
             v.warmth = Math.min(1, this.eaten / this.eatTarget);
           }
         }
@@ -1028,7 +1112,7 @@ export class Story {
     const t = this.beatTime;
     if (t > 1.5 && t - dt <= 1.5) {
       this.emit('bow', -0.2, GROUND_T);
-      this.rabbit.squash = 0.6;
+      this.rabbit.bounce(-4.5);
     }
     if (t > 3.0 && t - dt <= 3.0) {
       this.emit('howl', this.wolf.x, GROUND_T);

@@ -37,7 +37,7 @@ export class Lantern {
 
   constructor() {
     const pts: Vector2[] = [];
-    const n = 14;
+    const n = 40;
     for (let i = 0; i <= n; i++) {
       const u = i / n;
       const y = 0.022 + u * 0.13;
@@ -66,8 +66,13 @@ export class Lantern {
         varying vec3 vView;
         void main() {
           // Thin bamboo ribs and paper seams, lit from inside by the flame.
-          float ribs = smoothstep(0.0, 0.035, abs(fract(vUv.x * 10.0) - 0.5) * 2.0 - 0.015);
-          float bands = 1.0 - 0.22 * (1.0 - smoothstep(0.0, 0.05, abs(fract(vUv.y * 5.0 + 0.5) - 0.5)));
+          // anti-aliased with screen-space derivatives: no shimmer at any distance
+          float rx = abs(fract(vUv.x * 10.0) - 0.5) * 2.0;
+          float wx = max(fwidth(vUv.x * 10.0) * 2.0, 0.02);
+          float ribs = smoothstep(0.03, 0.03 + wx, rx);
+          float by = abs(fract(vUv.y * 5.0 + 0.5) - 0.5);
+          float wy = max(fwidth(vUv.y * 5.0), 0.01);
+          float bands = 1.0 - 0.22 * (1.0 - smoothstep(0.012, 0.012 + wy * 1.5, by));
           float facing = abs(dot(normalize(vN), normalize(vView)));
           float inner = mix(0.7, 1.0, facing);
           float core = 1.0 - smoothstep(0.0, 0.9, abs(vUv.y - 0.5) * 2.0);
@@ -83,13 +88,13 @@ export class Lantern {
       `,
       side: DoubleSide,
     });
-    this.body = new Mesh(new LatheGeometry(pts, 20), this.bodyMat);
+    this.body = new Mesh(new LatheGeometry(pts, 64), this.bodyMat);
     const wood = new MeshBasicMaterial({ color: 0x3a2618 });
-    const top = new Mesh(new CylinderGeometry(0.028, 0.03, 0.012, 16), wood);
+    const top = new Mesh(new CylinderGeometry(0.028, 0.03, 0.012, 48), wood);
     top.position.y = 0.158;
-    const base = new Mesh(new CylinderGeometry(0.03, 0.032, 0.014, 16), wood);
+    const base = new Mesh(new CylinderGeometry(0.03, 0.032, 0.014, 48), wood);
     base.position.y = 0.012;
-    const handle = new Mesh(new TorusGeometry(0.022, 0.0028, 6, 18, Math.PI), wood);
+    const handle = new Mesh(new TorusGeometry(0.022, 0.0028, 16, 48, Math.PI), wood);
     handle.position.y = 0.164;
     this.haloMat = new ShaderMaterial({
       uniforms: { uI: { value: 0 } },

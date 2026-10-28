@@ -3,6 +3,9 @@
  * Entry point: creates the IWSDK World (mixed reality, hand tracking, plane
  * detection), the App, its systems, and the landing page controls.
  */
+import '@fontsource/eb-garamond/latin-400.css';
+import '@fontsource/eb-garamond/latin-400-italic.css';
+import '@fontsource/eb-garamond/latin-500.css';
 import { SessionMode, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { App, BUILD } from './app.js';

@@ -22,6 +22,7 @@
     "dev:emu": "vite --port 8081 --strictPort"
   },
   "dependencies": {
+    "@fontsource/eb-garamond": "5.3.0",
     "@iwsdk/core": "1.0.1",
     "@pmndrs/uikit": "^1.0.74",
     "@pmndrs/uikit-horizon": "^1.0.74",

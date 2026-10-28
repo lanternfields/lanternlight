@@ -50,16 +50,28 @@ const FINGER_SPECS: FingerSpec[] = [
 ];
 
 const DEG = Math.PI / 180;
+const THUMB_LENS = [0.042, 0.032, 0.027];
 
-/** Builds joints in the local hand frame. */
-function localJoints(pose: SyntheticPose, handScale = 1): V3[] {
-  const out: V3[] = [];
-  for (let i = 0; i < 25; i++) out.push(new V3());
+const SPREAD_DEG = [-10, -2, 6, 14];
+const BASE_IDX = [J.indexMeta, J.middleMeta, J.ringMeta, J.pinkyMeta];
+const _exts = [0, 0, 0, 0];
+const _spread = [0, 0, 0, 0];
+const _flex = [0, 0, 0];
+const _local: V3[] = [];
+for (let i = 0; i < 25; i++) _local.push(new V3());
+
+/** Builds joints in the local hand frame (into `out`, reused: no allocation). */
+function localJoints(pose: SyntheticPose, handScale = 1, out: V3[] = _local): V3[] {
   out[J.wrist].set(0, 0, 0);
   const spread = pose.spread ?? 0.4;
-  const exts = [pose.index, pose.middle, pose.ring, pose.pinky];
-  const spreadAngles = [-10, -2, 6, 14].map((a) => a * spread * DEG);
-  const baseIdx = [J.indexMeta, J.middleMeta, J.ringMeta, J.pinkyMeta];
+  const exts = _exts;
+  exts[0] = pose.index;
+  exts[1] = pose.middle;
+  exts[2] = pose.ring;
+  exts[3] = pose.pinky;
+  const spreadAngles = _spread;
+  for (let i = 0; i < 4; i++) spreadAngles[i] = SPREAD_DEG[i] * spread * DEG;
+  const baseIdx = BASE_IDX;
   for (let f = 0; f < 4; f++) {
     const spec = FINGER_SPECS[f];
     const e = Math.max(0, Math.min(1, exts[f]));
@@ -68,7 +80,10 @@ function localJoints(pose: SyntheticPose, handScale = 1): V3[] {
     const k = out[baseIdx[f] + 1];
     k.set(spec.knuckle[0], spec.knuckle[1], spec.knuckle[2]);
     // Flexion angles (MCP, PIP, DIP)
-    const flex = [(1 - e) * 82, (1 - e) * 100, (1 - e) * 65].map((a) => a * DEG);
+    const flex = _flex;
+    flex[0] = (1 - e) * 82 * DEG;
+    flex[1] = (1 - e) * 100 * DEG;
+    flex[2] = (1 - e) * 65 * DEG;
     let angle = 0;
     let px = k.x;
     let py = k.y;
@@ -92,7 +107,7 @@ function localJoints(pose: SyntheticPose, handScale = 1): V3[] {
   const te = Math.max(0, Math.min(1, pose.thumb));
   const oppose = Math.max(0, Math.min(1, pose.thumbOppose ?? 0));
   out[J.thumbMeta].set(0.02, 0.022, 0.012);
-  const tLens = [0.042, 0.032, 0.027];
+  const tLens = THUMB_LENS;
   // Base direction: up/out; opposition rotates it toward the index fingertip.
   let ang = (52 - oppose * 30) * DEG; // angle from +Y toward +X
   let flexZ = (8 + oppose * 25) * DEG;
@@ -160,9 +175,11 @@ function rotate(p: V3, yaw: number, pitch: number, roll: number): V3 {
   return p.set(x, y, z);
 }
 
-export function makeHand(pose: SyntheticPose, place: Placement): HandFrame {
+/** Poses a synthetic hand. Pass `out` to reuse a HandFrame (no allocation per call). */
+export function makeHand(pose: SyntheticPose, place: Placement, out?: HandFrame): HandFrame {
   const handed = place.handedness ?? 'right';
-  const hand = createHandFrame(handed);
+  const hand = out ?? createHandFrame(handed);
+  hand.handedness = handed;
   const local = localJoints(pose, place.scale ?? 1);
   const rng = mulberry32(place.seed ?? 1);
   const noise = place.noise ?? 0;

@@ -4,10 +4,12 @@
  * Buttons are pressed by poking them with a fingertip (or ray + trigger).
  * Icons are drawn as simple vector paths (no font glyph dependencies).
  */
+import { FONT, fontsReady } from './text.js';
 import {
   CanvasTexture,
   Group,
   LinearFilter,
+  LinearMipmapLinearFilter,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
@@ -130,13 +132,17 @@ export class MenuButton {
   hover = 0;
   state = '';
   constructor(readonly def: ButtonDef) {
-    this.canvas.width = 256;
-    this.canvas.height = 320;
+    // 2x for crisp text and icons
+    this.canvas.width = 512;
+    this.canvas.height = 640;
     this.ctx = this.canvas.getContext('2d')!;
     this.tex = new CanvasTexture(this.canvas);
     this.tex.colorSpace = SRGBColorSpace;
-    this.tex.minFilter = LinearFilter;
-    this.tex.generateMipmaps = false;
+    this.tex.magFilter = LinearFilter;
+    this.tex.minFilter = LinearMipmapLinearFilter;
+    this.tex.generateMipmaps = true;
+    this.tex.anisotropy = 4;
+    void fontsReady.then(() => this.draw());
     this.mesh = new Mesh(
       new PlaneGeometry(0.075, 0.094),
       new MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, toneMapped: false }),
@@ -153,8 +159,10 @@ export class MenuButton {
 
   private draw(): void {
     const c = this.ctx;
-    const W = this.canvas.width;
-    c.clearRect(0, 0, W, this.canvas.height);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    c.setTransform(2, 0, 0, 2, 0, 0);
+    const W = 256;
     const r = 110;
     c.save();
     c.translate(W / 2, 128);
@@ -177,7 +185,7 @@ export class MenuButton {
     this.def.icon(c, 200);
     c.restore();
     c.fillStyle = '#ffe9c8';
-    c.font = 'italic 38px Georgia, "Noto Serif", serif';
+    c.font = `italic 38px ${FONT}`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.shadowColor = 'rgba(0,0,0,0.9)';

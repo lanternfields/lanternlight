@@ -56,7 +56,7 @@ export const MAX_CAPSULES = 96;
 export const PALM_POINTS = 10;
 void PALM_POLYGON;
 /** Physical flame radius (a candle-sized flame) used for the penumbra. */
-export const FLAME_RADIUS = 0.005;
+export const FLAME_RADIUS = 0.0035;
 
 export type ActorKind = 'hand' | 'rod';
 

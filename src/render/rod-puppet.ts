@@ -42,7 +42,7 @@ export class RodPuppetVisual {
     const card = new MeshBasicMaterial({ color: 0x120c08, side: DoubleSide });
     const wood = new MeshBasicMaterial({ color: 0x6b4426 });
     const [rod, ...parts] = CROC_ROD_PUPPET;
-    const stick = new Mesh(new CylinderGeometry(rod.r, rod.r, rod.b[1] - rod.a[1] + 0.03, 8), wood);
+    const stick = new Mesh(new CylinderGeometry(rod.r, rod.r, rod.b[1] - rod.a[1] + 0.03, 24), wood);
     stick.position.set(0, (rod.a[1] + rod.b[1]) / 2, 0);
     this.group.add(stick);
     const bodyShapes: Shape[] = [];

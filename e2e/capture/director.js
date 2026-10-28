@@ -139,6 +139,38 @@
     }
     if (hand.poseId !== '__blend') hand.poseId = '__blend';
   };
+  /** Composite pose: `base` with some joints taken from other poses. */
+  const THUMB = ['thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip'];
+  const composite = (name, base, overrides) => {
+    const out = { ...decompose(base) };
+    for (const [src, joints, w = 1] of overrides) {
+      const d = decompose(src);
+      for (const j of joints) {
+        if (!d[j] || !out[j]) continue;
+        const a = out[j];
+        const b = d[j];
+        out[j] = { q: qSlerp(a.q, b.q, w), p: [a.p[0] + (b.p[0] - a.p[0]) * w, a.p[1] + (b.p[1] - a.p[1]) * w, a.p[2] + (b.p[2] - a.p[2]) * w], r: a.r };
+      }
+    }
+    decomp[name] = out;
+  };
+  // The crocodile: fingers together and straight (the upper jaw), the thumb
+  // dropped (open) or pressed to the fingertips (bite).
+  composite('crocOpen', 'flat', [['open', THUMB]]);
+  {
+    // bite: the thumb tip presses up to the (straight) index/middle fingertips
+    composite('crocBite', 'flat', []);
+    const d = decomp.crocBite;
+    const it = d['index-finger-tip'].p;
+    const mt = d['middle-finger-tip'].p;
+    const goal = [(it[0] + mt[0]) / 2, (it[1] + mt[1]) / 2, (it[2] + mt[2]) / 2];
+    const pull = (joint, w) => {
+      const j = d[joint];
+      d[joint] = { ...j, p: [j.p[0] + (goal[0] - j.p[0]) * w, j.p[1] + (goal[1] - j.p[1]) * w, j.p[2] + (goal[2] - j.p[2]) * w] };
+    };
+    pull('thumb-phalanx-distal', 0.55);
+    pull('thumb-tip', 0.86);
+  }
   const setPose = (name, dur = 0.45) => {
     if (pose.to === name) return;
     // blend from exactly what the hand shows now (smooth even mid-blend)
@@ -296,6 +328,11 @@
     mark('snap:' + label);
   };
   const goto = (scene) => window.__lantern.goto(scene);
+  // a snapshot is taken after this frame renders: hold one frame before acting again
+  function* shoot(label) {
+    snap(label);
+    yield;
+  }
 
   function* chooseTale(id) {
     yield* until(() => S().scene === 'menu', 30);
@@ -342,9 +379,11 @@
     // ---- The Hungry Crocodile
     yield* chooseTale('croc');
     mark('croc');
-    yield* wait(1.2);
-    setPose('relaxed', 0.5);
-    orient(40, 0, -70);
+    // the hand becomes a crocodile: fingers together, thumb dropped, side-on
+    setPose('crocOpen', 0.6);
+    orient(10, -90, 90);
+    shadowTo(-0.02, 0.0, { feature: 'mouth', size: 1.1 });
+    yield* wait(2.6); // the title card
     let t0 = time;
     while (S().scene === 'croc' && S().stats.eaten < 7 && time - t0 < 45) {
       const ff = S().view.fireflies.find((f) => f.alive && f.glow > 0.5);
@@ -353,21 +392,20 @@
         continue;
       }
       shadowTo(ff.x, ff.y, { feature: 'mouth' });
-      ctl.pinchTarget = 0;
+      setPose('crocOpen', 0.35);
       let tt = 0;
       while (tt < 3) {
         tt += yield;
         const m = feature('mouth');
-        if (m && Math.hypot(m[0] - ff.x, m[1] - ff.y) < 0.045 && tt > 0.5) break;
+        if (m && Math.hypot(m[0] - ff.x, m[1] - ff.y) < 0.045 && tt > 0.6) break;
       }
-      // bite!
-      ctl.pinchRate = 14;
-      ctl.pinchTarget = 1;
-      yield* wait(0.32);
-      ctl.pinchRate = 6;
-      ctl.pinchTarget = 0;
-      yield* wait(0.35);
+      // bite! (fast, then a held beat, then the jaw opens again)
+      setPose('crocBite', 0.11);
+      yield* wait(0.38);
+      setPose('crocOpen', 0.32);
+      yield* wait(0.4);
     }
+    ctl.size = 1;
     mark('croc-fed');
     yield* until(() => S().scene !== 'croc', 15);
     rest();
@@ -418,11 +456,11 @@
   // ------------------------------------------------ stills for the style audit
   function* tale3(id, prefix) {
     yield* wait(0.5);
-    snap(prefix + '-0.5');
+    yield* shoot(prefix + '-0.5');
     yield* wait(1.0);
-    snap(prefix + '-1.5');
+    yield* shoot(prefix + '-1.5');
     yield* wait(1.5);
-    snap(prefix + '-3.0');
+    yield* shoot(prefix + '-3.0');
   }
   function* stills() {
     goto('intro');
@@ -430,30 +468,30 @@
     rest();
     yield* until(() => S().beat === 'wave', 20);
     yield* wait(1.6);
-    snap('prologue-ghost-wave');
+    yield* shoot('prologue-ghost-wave');
     setPose('open', 0.8);
     orient(60, 0, 0);
     ctl.tau = 0.35;
     shadowTo(0.04, 0.02);
     yield* wait(2.0);
-    snap('prologue-hand');
+    yield* shoot('prologue-hand');
     ctl.tau = 0.16;
     yield* until(() => S().beat === 'rabbitHint', 15);
     yield* wait(1.5);
-    snap('prologue-ghost-rabbit');
+    yield* shoot('prologue-ghost-rabbit');
     setPose('peace', 0.5);
     yield* until(() => S().stats.rabbitBirths > 0, 20);
     yield* wait(1.3);
-    snap('prologue-rabbit');
+    yield* shoot('prologue-rabbit');
     setPose('open', 0.6);
     shadowTo(0.3, -0.12);
     yield* until(() => S().scene === 'menu', 20);
     yield* wait(2.4);
-    snap('menu');
+    yield* shoot('menu');
     // The Hungry Crocodile: the hand is already a crocodile when it starts
-    setPose('relaxed', 0.4);
-    orient(40, 0, -70);
-    shadowTo(-0.12, 0.04, { feature: 'mouth' });
+    setPose('crocOpen', 0.4);
+    orient(10, -90, 90);
+    shadowTo(-0.02, 0.0, { feature: 'mouth', size: 1.1 });
     yield* wait(0.8);
     goto('croc');
     yield* tale3('croc', 'croc');
@@ -462,14 +500,13 @@
     const f = ff();
     if (f) {
       shadowTo(f.x, f.y, { feature: 'mouth' });
-      yield* wait(1.0);
-      ctl.pinchRate = 14;
-      ctl.pinchTarget = 1;
-      yield* wait(0.12);
-      snap('croc-chomp');
+      yield* wait(1.1);
+      yield* shoot('croc-aim');
+      setPose('crocBite', 0.11);
+      yield* wait(0.16);
+      yield* shoot('croc-chomp');
       yield* wait(0.3);
-      ctl.pinchRate = 6;
-      ctl.pinchTarget = 0;
+      setPose('crocOpen', 0.32);
       yield* wait(0.5);
     }
     // Rabbit's Bridge
@@ -483,7 +520,7 @@
     shadowTo(0.0, -0.37, { feature: 'handTop', size: 1.0 });
     yield* until(() => S().rabbit.onShadow, 12);
     yield* wait(0.3);
-    snap('bridge-play');
+    yield* shoot('bridge-play');
     ctl.tau = 0.16;
     // The Moon Wolf
     setPose('relaxed', 0.5);
@@ -498,12 +535,12 @@
     ctl.size = 1.6;
     yield* until(() => S().wolf.state === 'cower' || S().wolf.state === 'flee', 8);
     yield* wait(0.3);
-    snap('wolf-scare');
+    yield* shoot('wolf-scare');
     ctl.size = 1;
     rest();
     goto('finale');
     yield* wait(3.4);
-    snap('finale');
+    yield* shoot('finale');
   }
 
   applyBlend();
@@ -535,5 +572,12 @@
       return time;
     },
     ctl,
+    /** Debug: jump straight to a pose (tests and tuning). */
+    debugPose(name) {
+      setPose(name, 0.01);
+      pose.t = 1;
+      applyBlend();
+    },
+    poseNames: () => Object.keys(poses),
   };
 })();

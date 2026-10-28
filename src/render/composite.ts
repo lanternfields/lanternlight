@@ -49,13 +49,21 @@ const STAGE_FRAG = /* glsl */ `
     vec2 st = vec2((vUv.x - 0.5) * (uAspect + 2.0 * uPad), (vUv.y - 0.5) * (1.0 + 2.0 * uPad));
     vec4 m = texture2D(tStage, vUv);
     float shadow = clamp(max(m.r, m.g) * (1.0 - m.a), 0.0, 1.0);
-    float glow = m.b;
+    // cut-outs are paper in front of the light: they hide glows behind them
+    float glow = m.b * (1.0 - 0.92 * clamp(m.g * (1.0 - m.a), 0.0, 1.0));
     vec2 q = vec2(st.x / (uAspect * 0.5 + 0.03), st.y / 0.58);
-    float pool = 1.0 - smoothstep(0.5, 1.04, length(q));
+    float qr = length(q);
+    // lamplight: a hot core, a long warm falloff, a soft tail into the room
+    float pool = (1.0 - smoothstep(0.42, 1.06, qr)) * (0.82 + 0.18 * (1.0 - smoothstep(0.0, 0.55, qr)));
     pool *= uLight * (0.94 + 0.06 * uFlicker);
-    vec3 warm = mix(vec3(1.0, 0.64, 0.3), vec3(1.0, 0.78, 0.46), uWarmth);
-    vec3 shadowCol = vec3(0.03, 0.022, 0.028);
-    vec3 glowCol = vec3(1.0, 0.86, 0.48);
+    // colour temperature: lamp-core at the centre, lamp-mid, lamp-edge at the rim
+    vec3 core = vec3(1.0, 0.851, 0.627);
+    vec3 mid = vec3(0.969, 0.651, 0.353);
+    vec3 rim = vec3(0.722, 0.329, 0.118);
+    vec3 warm = mix(mix(core, mid, smoothstep(0.05, 0.6, qr)), rim, smoothstep(0.6, 1.0, qr));
+    warm = mix(warm, core, uWarmth * 0.5);
+    vec3 shadowCol = vec3(0.031, 0.024, 0.02);
+    vec3 glowCol = vec3(1.0, 0.902, 0.659);
     if (uContrast > 0.5) {
       warm = vec3(1.0, 0.96, 0.88);
       shadowCol = vec3(0.0);
@@ -81,8 +89,8 @@ const STAGE_FRAG = /* glsl */ `
       // Premultiplied: lamplight ADDS warm light over the real wall (it can
       // brighten, not just tint), shadows darken it. out = rgb + (1-a)*wall.
       float lit = pool * (1.0 - shadow);
-      float addK = uContrast > 0.5 ? 0.62 : 0.5;
-      vec3 add = (uContrast > 0.5 ? warm : vec3(1.0, 0.58, 0.24)) * lit * addK;
+      float addK = uContrast > 0.5 ? 0.62 : 0.52;
+      vec3 add = (uContrast > 0.5 ? vec3(1.0, 0.96, 0.88) : warm) * lit * addK;
       float dimA = lit * (uContrast > 0.5 ? 0.22 : 0.16); // a little multiply = richer colour
       float shadowA = (uContrast > 0.5 ? 0.97 : 0.88) * shadow * smoothstep(0.0, 0.25, pool);
       vec3 rgb = add * (1.0 - shadowA) + shadowCol * shadowA;
@@ -137,12 +145,12 @@ export class StageComposite {
     const wood = new MeshBasicMaterial({ color: 0x5a3a24 });
     const capMat = new MeshBasicMaterial({ color: 0x2b1b12 });
     for (const y of [0.5, -0.5]) {
-      const rod = new Mesh(new CylinderGeometry(0.5, 0.5, 1, 12, 1), wood);
+      const rod = new Mesh(new CylinderGeometry(0.5, 0.5, 1, 32, 1), wood);
       rod.rotation.z = Math.PI / 2;
       rod.userData.y = y;
       this.rods.add(rod);
       for (const side of [-1, 1]) {
-        const cap = new Mesh(new CylinderGeometry(0.7, 0.7, 1, 12, 1), capMat);
+        const cap = new Mesh(new CylinderGeometry(0.7, 0.7, 1, 32, 1), capMat);
         cap.rotation.z = Math.PI / 2;
         cap.userData.y = y;
         cap.userData.side = side;
@@ -228,6 +236,7 @@ export class RoomDim {
           vec3 ro = cameraPosition;
           vec3 rd = normalize(vWorld - ro);
           float hole = 0.0;
+          float spillWall = 0.0;
           float denom = dot(uNormal, rd);
           if (denom < -1e-4) {
             float t = dot(uNormal, uOrigin - ro) / denom;
@@ -236,6 +245,7 @@ export class RoomDim {
               vec2 st = vec2(dot(hit, uRight), dot(hit, uUp)) / uHeight;
               vec2 q = vec2(st.x / (uAspect * 0.5 + 0.1), st.y / 0.7);
               hole = (1.0 - smoothstep(0.45, 1.25, length(q))) * uPool;
+              spillWall = (1.0 - smoothstep(0.7, 1.9, length(q))) * uPool;
             }
           }
           // Lantern light spilling on the table and the viewer's hands.
@@ -244,7 +254,14 @@ export class RoomDim {
           float miss = length(toL - rd * along);
           float spill = exp(-pow(miss / 0.33, 2.0)) * uLanternGlow;
           float a = uDim * (1.0 - max(hole * 0.9, spill * 0.75));
-          gl_FragColor = vec4(0.012, 0.01, 0.02, a);
+          // house lights down to a warm black; around the stage the room is
+          // lamp-lit amber rather than revealed grey (STYLE_GUIDE palette)
+          vec3 house = vec3(0.043, 0.027, 0.02);
+          vec3 lampSpill = vec3(0.36, 0.17, 0.06);
+          float w = clamp(max(spillWall * 0.75, spill * 0.6), 0.0, 1.0);
+          vec3 col = mix(house, lampSpill, w);
+          a = max(a, w * 0.42 * step(0.001, uDim));
+          gl_FragColor = vec4(col, a);
         }
       `,
       transparent: true,

@@ -41,8 +41,14 @@ export class Rabbit {
   /** 0..1 progress through the current hop. */
   hopT = 0;
   idleTime = 0;
-  /** Squash/stretch for animation (1 = rest). */
+  /** Squash/stretch for animation (1 = rest; > 1 stretched, < 1 squashed). A damped spring. */
   squash = 1;
+  private squashV = 0;
+  /** Anticipation: a short crouch before each hop (STYLE_GUIDE 4.2). */
+  crouchTime = 0.085;
+  private crouching = -1;
+  private hopTx = 0;
+  private hopTy = 0;
   /** Is it currently standing on a shadow (riding your hand)? */
   onShadow = false;
   hopDuration = 0.34;
@@ -80,6 +86,9 @@ export class Rabbit {
     this.state = 'idle';
     this.idleTime = 0;
     this.hopT = 0;
+    this.crouching = -1;
+    this.squash = 1;
+    this.squashV = 0;
   }
 
   private ground(w: RabbitWorld, x: number, maxY: number, stepUp: number): Ground {
@@ -89,7 +98,15 @@ export class Rabbit {
   update(dt: number, w: RabbitWorld, active = true): RabbitEvents {
     const ev = this.events;
     ev.hopped = ev.landed = ev.landedOnShadow = ev.splashed = ev.reachedHome = ev.peering = false;
-    this.squash += (1 - this.squash) * (1 - Math.exp(-10 * dt));
+    // squash & stretch on a springy body: impulses at take-off and landing,
+    // a slight overshoot as it recovers (no snapping)
+    const target = this.crouching >= 0 ? 0.8 : 1;
+    const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      this.squashV += (520 * (target - this.squash) - 2 * 0.42 * 22.8 * this.squashV) * h;
+      this.squash += this.squashV * h;
+    }
     switch (this.state) {
       case 'home':
         return ev;
@@ -109,6 +126,15 @@ export class Rabbit {
           return ev;
         }
         this.idleTime += dt;
+        if (this.crouching >= 0) {
+          this.crouching += dt;
+          if (this.crouching >= this.crouchTime) {
+            this.crouching = -1;
+            this.startHop(this.hopTx, this.hopTy);
+            ev.hopped = true;
+          }
+          return ev;
+        }
         if (!active || this.idleTime < this.restTime) return ev;
         // Look for the farthest reachable landing spot up to maxHopReach.
         let landed = false;
@@ -118,15 +144,16 @@ export class Rabbit {
           if (tg.y === -Infinity) continue;
           if (tg.y < this.y - this.maxDrop) continue;
           if (tg.y < w.waterY) continue;
-          this.startHop(tx, tg.y);
+          // crouch first, then spring off
+          this.hopTx = tx;
+          this.hopTy = tg.y;
+          this.crouching = 0;
           landed = true;
           break;
         }
         if (!landed) {
           ev.peering = true;
           this.idleTime = this.restTime * 0.5;
-        } else {
-          ev.hopped = true;
         }
         return ev;
       }
@@ -141,7 +168,7 @@ export class Rabbit {
             this.y = g.y;
             this.state = 'idle';
             this.idleTime = 0;
-            this.squash = 0.7;
+            this.squashV -= 4.2; // landing squash
             this.onShadow = g.isShadow;
             ev.landed = true;
             ev.landedOnShadow = g.isShadow;
@@ -163,7 +190,7 @@ export class Rabbit {
           this.vy = 0;
           this.state = 'idle';
           this.idleTime = 0;
-          this.squash = 0.6;
+          this.squashV -= 5.5;
           this.onShadow = g.isShadow;
           ev.landed = true;
           ev.landedOnShadow = g.isShadow;
@@ -211,6 +238,11 @@ export class Rabbit {
     this.hLift = 0.045 + Math.max(0, ty - this.y) * 1.1;
     this.hopT = 0;
     this.state = 'hop';
-    this.squash = 1.25;
+    this.squashV += 5.2; // stretch out of the crouch
+  }
+
+  /** A little bounce from outside (e.g. taking a bow). */
+  bounce(v: number): void {
+    this.squashV += v;
   }
 }

@@ -21,7 +21,7 @@ single lantern:
 
 | Layer | Channel | Edge |
 | --- | --- | --- |
-| Hands, rod puppets, **ghost hints** | R (cast shadow) | physical penumbra: flame radius 5 mm × distance (clamped 0.004–0.032 stage units) |
+| Hands, rod puppets, **ghost hints** | R (cast shadow) | physical penumbra: flame radius 3.5 mm × distance (clamped 0.004–0.022 stage units) |
 | Paper cut-outs (rabbit, wolf, crocodile, scenery, emblems) | G (cut-out) | fixed "paper on the screen" penumbra: **0.0045 stage units** |
 | Holes (eyes, burrow door, shell spiral) | A (hole) | the same as cut-outs |
 | Light (moon, fireflies, sparkles, icon rings) | B (light) | always soft glows; never hard-edged |
@@ -150,10 +150,13 @@ keyframes).
    on key poses (≥ 0.4 s) and blend between poses with ease in-out. They
    never snap.
 
-Verification: `node e2e/motion-curves.mjs` records per-frame positions of the
-rabbit, wolf, a firefly, the crocodile eye and the demo hand from a
-frame-stepped run. It plots position and velocity, and fails if any element's
-per-frame acceleration exceeds its limit (a pop or a jitter).
+Verification: `node e2e/style-stills.mjs <label>` records the per-frame
+on-stage positions of the rabbit, wolf, a firefly, the crocodile eye overlay and
+the demo hand's fingertip shadow in a frame-stepped run. `e2e/tools/motion_plot.py`
+plots position and speed for each (`artifacts/style/<label>-motion.png`) and
+counts **pops**: single-frame jumps larger than 6× the element's own
+95th-percentile step (and > 0.02 stage units), outside scene cuts and fades.
+The target is zero pops for every element.
 
 ---
 

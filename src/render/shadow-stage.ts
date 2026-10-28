@@ -17,6 +17,7 @@ import {
   OrthographicCamera,
   PlaneGeometry,
   RGBAFormat,
+  ShaderMaterial,
   Scene,
   Shape,
   ShapeGeometry,
@@ -25,10 +26,14 @@ import {
   WebGLRenderTarget,
   WebGLRenderer,
 } from '@iwsdk/core';
-import { Capsule2D, PALM_POINTS, ShadowModel, CROC_ROD_PUPPET } from '../core/shadow-model.js';
+import { Actor, Capsule2D, PALM_POINTS, ShadowModel, CROC_ROD_PUPPET } from '../core/shadow-model.js';
 import { StageView, GROUND_T } from '../core/story.js';
-import { ghostCapsules } from '../core/ghost.js';
+import { GhostCaster } from '../core/ghost.js';
+import { Spring, easeOutBack, easeOutCubic, keyLoop, smoothNoise } from '../core/ease.js';
 import { WolfPuppet } from './wolf-puppet.js';
+import { CrocOverlay } from './croc-overlay.js';
+import { TitleCard } from './title-card.js';
+import { drawBurrowDoor, drawFirefly, drawLilies, drawReeds, drawReflection, drawStars } from './scenery-art.js';
 import {
   CH_CUTOUT,
   CH_HOLE,
@@ -42,6 +47,15 @@ import {
 } from './materials.js';
 
 export const STAGE_PAD = 0.1;
+/** Edge softness of paper cut-outs and holes (stage units): one soft-edge model (STYLE_GUIDE 1). */
+export const PAPER_EDGE = 0.0045;
+const EAR_TWITCH: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [4.6, 0],
+  [4.72, 0.22],
+  [4.9, -0.05],
+  [5.05, 0],
+];
 /** Rabbit puppet scale (its model is ~0.15 stage units tall at 1). */
 export const RABBIT_SCALE = 1.55;
 
@@ -158,7 +172,7 @@ class GlowBatch {
   }
 }
 
-function ellipse(cx: number, cy: number, rx: number, ry: number, rot = 0, segments = 20): Shape {
+function ellipse(cx: number, cy: number, rx: number, ry: number, rot = 0, segments = 40): Shape {
   const shape = new Shape();
   const curve = new EllipseCurve(cx, cy, rx, ry, 0, Math.PI * 2, false, rot);
   const pts = curve.getPoints(segments);
@@ -255,11 +269,22 @@ export class ShadowStage {
 
   private readonly hands = new CapsuleBatch(128, CH_SHADOW);
   private readonly palms: Mesh[] = [createPalm(), createPalm()];
-  private readonly scenery = new CapsuleBatch(48, CH_CUTOUT);
-  private readonly ghost = new CapsuleBatch(32, CH_CUTOUT);
-  private readonly details = new CapsuleBatch(64, CH_CUTOUT);
-  private readonly holes = new CapsuleBatch(8, CH_HOLE);
-  private readonly glows = new GlowBatch(64);
+  private readonly scenery = new CapsuleBatch(192, CH_CUTOUT);
+  /** The ghost hint is a cast shadow too (R channel, same penumbra as a hand). */
+  private readonly ghostHand = new CapsuleBatch(64, CH_SHADOW);
+  private readonly ghostPalm = createPalm();
+  private readonly ghostCaster = new GhostCaster();
+  private readonly details = new CapsuleBatch(128, CH_CUTOUT);
+  private readonly holes = new CapsuleBatch(32, CH_HOLE);
+  private readonly glows = new GlowBatch(128);
+  private readonly crocOverlay = new CrocOverlay();
+  private readonly title = new TitleCard();
+  private readonly titleDisc = new Mesh(new PlaneGeometry(1, 1), createIconMaterial());
+  private readonly rabbitTilt = new Spring(0, 12, 0.7);
+  private readonly rabbitEars = new Spring(0, 11, 0.38);
+  private prevRabbitY = 0;
+  private lastTime = -1;
+  private lastGulps = 0;
   private readonly rabbit = createRabbitPuppet();
   private readonly iconRabbit = createRabbitPuppet();
   private readonly wolf = new WolfPuppet();
@@ -267,7 +292,6 @@ export class ShadowStage {
   private readonly moon: Mesh;
   private readonly water = createWater(1.8);
   private readonly icons: Mesh[] = [];
-  private readonly ghostBuf: Capsule2D[] = [];
   private readonly clearColor = new Color(0, 0, 0);
 
   constructor() {
@@ -293,8 +317,10 @@ export class ShadowStage {
       this.hands.mesh,
       this.palms[0],
       this.palms[1],
-      this.ghost.mesh,
+      this.ghostHand.mesh,
+      this.ghostPalm,
       this.details.mesh,
+      this.title.group,
       this.rabbit.group,
       this.iconRabbit.group,
       this.wolf.group,
@@ -311,7 +337,9 @@ export class ShadowStage {
       this.icons.push(icon);
       this.scene.add(icon);
     }
-    for (let i = 0; i < 32; i++) this.ghostBuf.push({ ax: 0, ay: 0, bx: 0, by: 0, r: 0, soft: 0, actor: -2 });
+    this.titleDisc.frustumCulled = false;
+    this.titleDisc.visible = false;
+    this.scene.add(this.titleDisc);
     // Draw order matters only for readability; MAX blending is order independent.
     this.setLayout(1.45, 512);
   }
@@ -337,30 +365,39 @@ export class ShadowStage {
   }
 
   update(model: ShadowModel, view: StageView, time: number, reduceMotion: boolean, flicker = 0): void {
+    const dt = this.lastTime < 0 ? 1 / 72 : Math.min(0.1, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+    const set = view.set;
     // penumbra breathes a little with the flame
     this.penumbra = model.penumbra * (1 + (reduceMotion ? 0 : 0.08 * flicker));
+    this.glows.begin();
+    this.details.begin();
+    this.holes.begin();
+
     // ---- cast shadows (hands & rod puppets)
     this.hands.begin();
     for (let i = 0; i < model.capsuleCount; i++) this.hands.push(model.capsules[i]);
     this.hands.end();
     for (let h = 0; h < 2; h++) {
       const a = model.actors[h];
-      const palm = this.palms[h];
-      palm.visible = a.present && a.palmValid;
-      if (!palm.visible) continue;
-      const attr = palm.geometry.getAttribute('position') as BufferAttribute;
-      const arr = attr.array as Float32Array;
-      for (let k = 0; k < PALM_POINTS; k++) {
-        arr[k * 3] = a.palm[k * 2];
-        arr[k * 3 + 1] = a.palm[k * 2 + 1];
-        arr[k * 3 + 2] = 0;
-      }
-      attr.needsUpdate = true;
+      this.updatePalm(this.palms[h], a, 1);
     }
 
-    // ---- scenery
+    // ---- ghost hint: cast by the same caster as a real hand, only fainter
+    const g = view.ghost;
+    this.ghostHand.begin();
+    this.ghostCaster.update(g.pose, g.s, g.t, g.scale, g.phase, g.visible, dt);
+    const gs = g.visible * 0.55;
+    if (this.ghostCaster.visible) {
+      const gm = this.ghostCaster.model;
+      for (let i = 0; i < gm.capsuleCount; i++) this.ghostHand.push(gm.capsules[i], gs);
+    }
+    this.ghostHand.end();
+    this.updatePalm(this.ghostPalm, this.ghostCaster.model.actors[1], gs, !this.ghostCaster.visible);
+
+    // ---- scenery (the set fades in as a tale's title card leaves)
     this.scenery.begin();
-    for (let i = 0; i < view.sceneryCount; i++) this.scenery.push(view.scenery[i]);
+    for (let i = 0; i < view.sceneryCount; i++) this.scenery.push(view.scenery[i], set);
     // grass tufts along floor capsules
     for (let i = 0; i < view.sceneryCount; i++) {
       const c = view.scenery[i];
@@ -369,84 +406,60 @@ export class ShadowStage {
       const x0 = Math.min(c.ax, c.bx);
       const x1 = Math.max(c.ax, c.bx);
       for (let x = x0 + 0.03; x < x1 - 0.02; x += 0.075) {
-        const sway = reduceMotion ? 0 : Math.sin(time * 1.3 + x * 9) * 0.004;
+        const sway = reduceMotion ? 0 : smoothNoise(time * 0.5 + x * 7, 3) * 0.004;
         const hgt = 0.018 + ((x * 137) % 0.012);
-        this.scenery.pushRaw(x, top - 0.004, x - 0.006 + sway, top + hgt, 0.0035, 0.003);
-        this.scenery.pushRaw(x + 0.008, top - 0.004, x + 0.012 + sway, top + hgt * 0.8, 0.003, 0.003);
+        this.scenery.pushRaw(x, top - 0.004, x - 0.006 + sway, top + hgt, 0.0035, 0.003, set, 0.0012);
+        this.scenery.pushRaw(x + 0.008, top - 0.004, x + 0.012 + sway, top + hgt * 0.8, 0.003, 0.003, set, 0.001);
       }
     }
-    // burrow mound
+    if (view.scene === 'croc') {
+      drawReeds(this.scenery, GROUND_T - 0.01, time, reduceMotion, set);
+      if (Number.isFinite(view.waterY)) drawLilies(this.scenery, view.waterY, time, reduceMotion, set);
+    }
+    // burrow mound with a lit doorway
     if (view.burrow.visible > 0.01) {
       const b = view.burrow;
-      this.scenery.pushRaw(b.s - 0.06, b.t + 0.005, b.s + 0.06, b.t + 0.005, 0.045, 0.004, b.visible);
+      const bv = b.visible * set;
+      this.scenery.pushRaw(b.s - 0.06, b.t + 0.005, b.s + 0.06, b.t + 0.005, 0.045, 0.004, bv);
+      drawBurrowDoor(this.holes, this.glows, b.s, b.t, bv, time, reduceMotion);
     }
     this.scenery.end();
 
     // ---- water
     const hasWater = Number.isFinite(view.waterY);
     this.water.mesh.visible = hasWater;
-    if (hasWater) this.water.update(view.waterY, time, reduceMotion);
-
-    // ---- ghost hint
-    this.ghost.begin();
-    if (view.ghost.visible > 0.01) {
-      const n = ghostCapsules(view.ghost.pose, view.ghost.s, view.ghost.t, view.ghost.scale, view.ghost.phase, this.ghostBuf, 32);
-      const pulse = reduceMotion ? 1 : 0.8 + 0.2 * Math.sin(time * 2.2);
-      for (let i = 0; i < n; i++) this.ghost.push(this.ghostBuf[i], view.ghost.visible * 0.62 * pulse);
+    if (hasWater) {
+      this.water.update(view.waterY, time, reduceMotion);
+      (this.water.mesh.material as ShaderMaterial).uniforms.uStrength.value = 0.92 * set;
     }
-    this.ghost.end();
 
-    // ---- details: crocodile overlay, icon glyphs
-    this.details.begin();
-    this.holes.begin();
+    // ---- the crocodile your hand becomes
     const croc = view.croc;
-    if (croc.visible > 0.05) {
-      // brow bump over the eye
-      this.details.pushRaw(croc.eyeS - 0.022, croc.eyeT - 0.004, croc.eyeS + 0.018, croc.eyeT + 0.004, 0.017, 0.006, croc.visible);
-      this.holes.pushRaw(croc.eyeS, croc.eyeT + 0.002, croc.eyeS, croc.eyeT + 0.002, 0.0085, 0.003, croc.visible);
-      // teeth along both jaws, pointing into the mouth gap
-      const open = croc.open;
-      if (open > 0.15) {
-        const ux = croc.eyeS - croc.upperS;
-        const uy = croc.eyeT - croc.upperT;
-        const len = Math.hypot(ux, uy) || 1;
-        const dx = ux / len;
-        const dy = uy / len;
-        // perpendicular toward the lower jaw
-        let px = -dy;
-        let py = dx;
-        if ((croc.lowerS - croc.upperS) * px + (croc.lowerT - croc.upperT) * py < 0) {
-          px = -px;
-          py = -py;
-        }
-        const tooth = 0.016 * Math.min(1, open * 1.5);
-        for (let k = 1; k <= 4; k++) {
-          const u = k * 0.028;
-          const bx = croc.upperS + dx * u;
-          const by = croc.upperT + dy * u;
-          this.details.pushRaw(bx, by, bx + px * tooth, by + py * tooth, 0.0045, 0.003, croc.visible);
-          const lx = croc.lowerS + dx * u;
-          const ly = croc.lowerT + dy * u;
-          this.details.pushRaw(lx, ly, lx - px * tooth * 0.8, ly - py * tooth * 0.8, 0.0042, 0.003, croc.visible);
-        }
-      }
+    if (croc.gulps !== this.lastGulps) {
+      if (croc.gulps > this.lastGulps) this.crocOverlay.swallow();
+      this.lastGulps = croc.gulps;
     }
-    // Menu icon glyphs.
+    const crocActor = croc.actor >= 0 && croc.visible > 0.05 ? model.actors[croc.actor] : null;
+    this.crocOverlay.update(dt, model, crocActor && crocActor.present ? crocActor : null, croc.visible, croc.open, time, this.details, this.holes, this.glows);
+
+    // ---- menu icons: appear with a little overshoot, staggered (story sets 0..1)
     for (let i = 0; i < view.icons.length; i++) {
       const icon = view.icons[i];
       const mesh = this.icons[i];
-      const mat = mesh.material as import('@iwsdk/core').ShaderMaterial;
+      const mat = mesh.material as ShaderMaterial;
+      const vis = easeOutCubic(icon.visible);
       mesh.visible = icon.visible > 0.01 && view.scene === 'menu';
       mesh.position.set(icon.s, icon.t, 0);
-      mesh.scale.setScalar(icon.r * 2);
+      mesh.scale.setScalar(icon.r * 2 * (0.55 + 0.45 * easeOutBack(icon.visible, 1.7)));
       mat.uniforms.uFill.value = icon.fill;
-      mat.uniforms.uVisible.value = icon.visible;
+      mat.uniforms.uVisible.value = vis;
       mat.uniforms.uDone.value = icon.completed ? 1 : 0;
       mat.uniforms.uTime.value = time;
       if (!mesh.visible) continue;
+      const k0 = 0.55 + 0.45 * easeOutBack(icon.visible, 1.7);
       if (icon.id === 'croc') {
         // the croc puppet spans ~0.4 m; fit it inside the ring
-        const k = (icon.r * 1.45) / 0.18;
+        const k = ((icon.r * 1.45) / 0.18) * k0;
         for (let pi = 1; pi < CROC_ROD_PUPPET.length; pi++) {
           const part = CROC_ROD_PUPPET[pi];
           this.details.pushRaw(
@@ -456,76 +469,124 @@ export class ShadowStage {
             icon.t + (part.b[1] - 0.2) * k,
             part.r * k,
             0.003,
-            icon.visible,
+            vis,
           );
         }
       } else if (icon.id === 'bridge') {
         // a little plank bridge under the icon rabbit
-        this.details.pushRaw(icon.s - 0.07, icon.t - 0.045, icon.s + 0.07, icon.t - 0.045, 0.006, 0.003, icon.visible);
+        this.details.pushRaw(icon.s - 0.07 * k0, icon.t - 0.045 * k0, icon.s + 0.07 * k0, icon.t - 0.045 * k0, 0.006 * k0, 0.003, vis);
       }
     }
     const wolfIcon = view.icons[2];
     const iw = this.iconWolf;
     if (wolfIcon && view.scene === 'menu' && wolfIcon.visible > 0.05) {
-      iw.update(wolfIcon.s + 0.005, wolfIcon.t - 0.05, 1, 'howl', 0.35, 0, 1, time);
-      iw.group.scale.set(0.4, 0.4, 1);
+      const k0 = 0.55 + 0.45 * easeOutBack(wolfIcon.visible, 1.7);
+      iw.update(wolfIcon.s + 0.005 * k0, wolfIcon.t - 0.05 * k0, 1, 'howl', 0.35, 0, 1, time);
+      iw.group.scale.set(0.4 * k0, 0.4 * k0, 1);
     } else {
       iw.group.visible = false;
     }
     const ir = this.iconRabbit.group;
     const bridgeIcon = view.icons[1];
     ir.visible = view.scene === 'menu' && bridgeIcon.visible > 0.05;
-    ir.position.set(bridgeIcon.s - 0.005, bridgeIcon.t - 0.039, 0);
-    ir.scale.setScalar(0.62);
-    this.details.end();
-    this.holes.end();
+    const kb = 0.55 + 0.45 * easeOutBack(bridgeIcon.visible, 1.7);
+    ir.position.set(bridgeIcon.s - 0.005 * kb, bridgeIcon.t - 0.039 * kb, 0);
+    ir.scale.setScalar(0.62 * kb);
 
-    // ---- rabbit
+    // ---- title card: a disc of lamplight with the tale's emblem
+    this.title.update(view.title.id, view.title.t, time);
+    const ta = this.title.alpha;
+    const tm = this.titleDisc;
+    tm.visible = ta > 0.01;
+    if (tm.visible) {
+      const u = (tm.material as ShaderMaterial).uniforms;
+      tm.scale.setScalar(0.62 * this.title.scale);
+      u.uVisible.value = ta;
+      u.uFill.value = 0;
+      u.uTime.value = time;
+      this.glows.push(0, 0, 0.3 * this.title.scale, 0.75 * ta);
+      if (view.title.id === 'croc') {
+        // the firefly the crocodile is snapping at
+        drawFirefly(this.glows, 0.19 * this.title.scale, 0.0, ta, 0, time, reduceMotion);
+      } else if (view.title.id === 'wolf') {
+        this.glows.push(0.1, 0.11, 0.07, 0.95 * ta);
+      }
+    }
+
+    // ---- rabbit: squash & stretch from the body spring, ears and tilt follow through
     const rv = view.rabbit;
     const rg = this.rabbit.group;
     rg.visible = rv.visible > 0.02;
     if (rg.visible) {
+      const vy = dt > 0 ? (rv.y - this.prevRabbitY) / dt : 0;
+      this.prevRabbitY = rv.y;
       rg.position.set(rv.x, rv.y, 0);
-      const sq = rv.squash;
+      const sq = Math.max(0.6, Math.min(1.4, rv.squash));
       const k = RABBIT_SCALE;
       rg.scale.set(rv.dir * (1 / Math.sqrt(sq)) * k, sq * k, 1);
-      this.rabbit.body.rotation.z = rv.hopping ? 0.18 : 0;
-      this.rabbit.ears.rotation.z = rv.hopping ? 0.25 : rv.peering ? -0.15 + Math.sin(time * 6) * 0.08 : Math.sin(time * 0.9) * 0.05;
-      const fade = rv.visible;
-      for (const child of [rg]) child.visible = fade > 0.02;
+      // lean into the hop: nose up rising, down falling
+      const tilt = this.rabbitTilt.update(rv.hopping ? Math.max(-0.3, Math.min(0.35, vy * 0.35)) : 0, dt);
+      this.rabbit.body.rotation.z = tilt;
+      // ears lag behind the body's vertical motion and twitch now and then
+      const twitch = reduceMotion ? 0 : keyLoop(time + rv.x * 3, 5.3, EAR_TWITCH);
+      const earT = rv.peering ? -0.15 + Math.sin(time * 6) * 0.08 : -Math.max(-0.5, Math.min(0.5, vy * 0.55)) + twitch;
+      this.rabbit.ears.rotation.z = this.rabbitEars.update(earT, dt);
     }
 
     // ---- wolf & moon
     const wv = view.wolf;
-    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible, time);
+    this.wolf.update(wv.x, wv.y, wv.dir, wv.state, wv.crouch, wv.phase, wv.visible * (view.scene === 'wolf' ? set : 1), time);
     const mv = view.moon;
     this.moon.visible = mv.visible > 0.02;
     this.moon.position.set(mv.s, mv.t, 0);
     this.moon.scale.setScalar(mv.r * (0.85 + 0.15 * mv.visible));
-    (this.moon.material as import('@iwsdk/core').ShaderMaterial).uniforms.uStrength.value = 0.95 * mv.visible;
+    (this.moon.material as ShaderMaterial).uniforms.uStrength.value = 0.95 * mv.visible;
 
-    // ---- light: fireflies & sparkles
-    this.glows.begin();
+    // ---- light: moon halo, stars, fireflies & sparkles
     if (mv.visible > 0.02) this.glows.push(mv.s, mv.t, mv.r * 2.6, (0.35 + 0.45 * mv.glow) * mv.visible);
+    if (view.scene === 'wolf' || view.scene === 'finale') drawStars(this.glows, mv.visible, time, reduceMotion);
+    const river = view.scene === 'croc' && hasWater;
     for (let i = 0; i < view.fireflies.length; i++) {
       const f = view.fireflies[i];
       if (f.alive) {
-        const flick = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(time * 9 + i * 1.7);
-        this.glows.push(f.x, f.y, 0.04, f.glow * flick);
+        drawFirefly(this.glows, f.x, f.y, f.glow, i, time, reduceMotion);
+        if (river) drawReflection(this.glows, f.x, view.waterY, f.glow, f.y, time);
       } else if (f.eaten > 0) {
-        // a little burst of light where it was eaten
-        this.glows.push(f.x, f.y, 0.03 + f.eaten * 0.08, (1 - f.eaten) * 0.8);
+        // a little burst of light where it was caught
+        const e = easeOutCubic(f.eaten);
+        this.glows.push(f.x, f.y, 0.03 + e * 0.09, (1 - e) * 0.85);
       }
     }
     if (view.sparkle > 0.02 && !reduceMotion) {
       for (let k = 0; k < 10; k++) {
         const ang = k * 2.399 + time * 0.7;
-        const rr = 0.12 + 0.25 * (1 - view.sparkle) + (k % 3) * 0.04;
+        const rr = 0.12 + 0.25 * easeOutCubic(1 - view.sparkle) + (k % 3) * 0.04;
         this.glows.push(Math.cos(ang) * rr * 1.3, Math.sin(ang) * rr + 0.05, 0.018, view.sparkle * (0.5 + 0.5 * Math.sin(time * 12 + k)));
       }
     }
     this.glows.end();
-    void GROUND_T;
+    this.details.end();
+    this.holes.end();
+  }
+
+  /** Debug/test: the crocodile overlay's smoothed eye position, or null. */
+  debugCroc(): [number, number] | null {
+    return this.crocOverlay.eye();
+  }
+
+  /** Copies an actor's palm contour into a palm mesh (strength = shadow opacity). */
+  private updatePalm(palm: Mesh, a: Actor, strength: number, hide = false): void {
+    palm.visible = !hide && a.present && a.palmValid && strength > 0.005;
+    if (!palm.visible) return;
+    const attr = palm.geometry.getAttribute('position') as BufferAttribute;
+    const arr = attr.array as Float32Array;
+    for (let k = 0; k < PALM_POINTS; k++) {
+      arr[k * 3] = a.palm[k * 2];
+      arr[k * 3 + 1] = a.palm[k * 2 + 1];
+      arr[k * 3 + 2] = 0;
+    }
+    attr.needsUpdate = true;
+    (palm.material as ShaderMaterial).uniforms.uStrength.value = strength;
   }
 
   render(renderer: WebGLRenderer): void {
@@ -542,17 +603,21 @@ export class ShadowStage {
     this.lastCalls = renderer.info.render.calls;
     this.lastTriangles = renderer.info.render.triangles;
     // Penumbra: blur the cast-shadow channel, horizontal then vertical.
+    // Both radii are in stage units, so the look is the same at every quality level.
     const widthUnits = this.aspect + 2 * STAGE_PAD;
-    const radiusPx = Math.min(24, (this.penumbra / widthUnits) * this.target.width);
-    if (radiusPx > 0.6) {
+    const pxPerUnit = this.target.width / widthUnits;
+    const radiusPx = Math.min(32, this.penumbra * pxPerUnit);
+    const paperPx = PAPER_EDGE * pxPerUnit;
+    {
       const u = this.blurMat.uniforms;
       const k = radiusPx / 4; // 4 taps per side span the radius
+      const kp = paperPx / 4;
       u.tSrc.value = this.target.texture;
-      (u.uStep.value as Vector4).set(k / this.target.width, 0, 0, 0);
+      (u.uStep.value as Vector4).set(k / this.target.width, 0, kp / this.target.width, 0);
       renderer.setRenderTarget(this.temp);
       renderer.render(this.blurScene, this.blurCam);
       u.tSrc.value = this.temp.texture;
-      (u.uStep.value as Vector4).set(0, k / this.target.height, 0, 0);
+      (u.uStep.value as Vector4).set(0, k / this.target.height, 0, kp / this.target.height);
       renderer.setRenderTarget(this.target);
       renderer.render(this.blurScene, this.blurCam);
       this.lastCalls += 2;

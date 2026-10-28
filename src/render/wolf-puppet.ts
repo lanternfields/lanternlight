@@ -7,8 +7,9 @@
 import { EllipseCurve, Group, Mesh, Shape, ShapeGeometry, Vector2 } from '@iwsdk/core';
 import type { WolfState } from '../core/wolf.js';
 import { CH_CUTOUT, CH_HOLE, createFlatMaterial } from './materials.js';
+import { Spring } from '../core/ease.js';
 
-function ellipse(cx: number, cy: number, rx: number, ry: number, rot = 0, seg = 18): Shape {
+function ellipse(cx: number, cy: number, rx: number, ry: number, rot = 0, seg = 40): Shape {
   const s = new Shape();
   s.setFromPoints(new EllipseCurve(cx, cy, rx, ry, 0, Math.PI * 2, false, rot).getPoints(seg));
   return s;
@@ -108,32 +109,58 @@ export class WolfPuppet {
     this.group.visible = false;
   }
 
+  // Every pose parameter goes through a spring (STYLE_GUIDE 4): state changes
+  // blend instead of snapping, the tail follows through.
+  private readonly sSwing = new Spring(0, 12, 1);
+  private readonly sSit = new Spring(0, 8, 0.85);
+  private readonly sHead = new Spring(0, 13, 0.75);
+  private readonly sTail = new Spring(0, 9, 0.55);
+  private readonly sBodyRot = new Spring(0, 11, 0.85);
+  private readonly sBodyY = new Spring(0, 14, 0.9);
+  private lastTime = -1;
+  private wasVisible = false;
+
   update(x: number, y: number, dir: number, state: WolfState, crouch: number, phase: number, visible: number, time: number): void {
     this.group.visible = visible > 0.02 && state !== 'away';
-    if (!this.group.visible) return;
+    if (!this.group.visible) {
+      this.wasVisible = false;
+      return;
+    }
+    const dt = this.lastTime < 0 ? 0 : Math.min(0.1, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
     this.group.position.set(x, y, 0);
     const k = 1.15;
     this.group.scale.set(dir * k, k, 1);
     const walking = state === 'prowl' || state === 'flee' || state === 'return';
-    const swing = walking ? Math.sin(phase) * (state === 'flee' ? 0.7 : 0.38) : 0;
-    this.legs[0].rotation.z = swing;
-    this.legs[1].rotation.z = -swing;
-    this.legs[2].rotation.z = -swing;
-    this.legs[3].rotation.z = swing;
     const sitting = state === 'sit' || state === 'howl';
-    // body pose
-    this.body.position.y = -0.028 * crouch + (walking ? Math.abs(Math.sin(phase)) * 0.004 : 0);
-    this.body.rotation.z = sitting ? 0.32 : state === 'cower' ? -0.06 : 0;
-    if (sitting) {
-      // back legs folded under, front legs straight
-      this.legs[2].rotation.z = -1.1;
-      this.legs[3].rotation.z = -1.0;
-      this.legs[0].rotation.z = -0.3;
-      this.legs[1].rotation.z = -0.25;
+    const cower = state === 'cower';
+    const headT =
+      state === 'howl' ? 0.65 + Math.sin(time * 2.2) * 0.04 : cower ? -0.45 * crouch : sitting ? -0.32 : Math.sin(time * 1.7) * 0.04;
+    const tailT = cower ? -1.1 * crouch : state === 'flee' ? 0.2 + Math.sin(phase * 2) * 0.1 : sitting ? -0.5 : 0.25 + Math.sin(time * 2.4) * 0.12;
+    const bodyRotT = sitting ? 0.32 : cower ? -0.06 : 0;
+    const bodyYT = -0.028 * crouch + (walking ? Math.abs(Math.sin(phase)) * 0.004 : 0);
+    if (!this.wasVisible) {
+      // appearing: start in pose, no blend from a stale one
+      this.sSwing.snap(walking ? 0.38 : 0);
+      this.sSit.snap(sitting ? 1 : 0);
+      this.sHead.snap(headT);
+      this.sTail.snap(tailT);
+      this.sBodyRot.snap(bodyRotT);
+      this.sBodyY.snap(bodyYT);
+      this.wasVisible = true;
     }
-    this.head.rotation.z =
-      state === 'howl' ? 0.65 + Math.sin(time * 2.2) * 0.04 : state === 'cower' ? -0.45 * crouch : sitting ? -0.32 : Math.sin(time * 1.7) * 0.04;
-    this.tail.rotation.z =
-      state === 'cower' ? -1.1 * crouch : state === 'flee' ? 0.2 + Math.sin(phase * 2) * 0.1 : sitting ? -0.5 : 0.25 + Math.sin(time * 2.4) * 0.12;
+    const amp = this.sSwing.update(walking ? (state === 'flee' ? 0.7 : 0.38) : 0, dt);
+    const swing = Math.sin(phase) * amp;
+    const sit = Math.max(0, Math.min(1, this.sSit.update(sitting ? 1 : 0, dt)));
+    // walk (alternating pairs) blended with the sitting pose (back legs folded)
+    const l = this.legs;
+    l[0].rotation.z = swing * (1 - sit) + -0.3 * sit;
+    l[1].rotation.z = -swing * (1 - sit) + -0.25 * sit;
+    l[2].rotation.z = -swing * (1 - sit) + -1.1 * sit;
+    l[3].rotation.z = swing * (1 - sit) + -1.0 * sit;
+    this.body.position.y = this.sBodyY.update(bodyYT, dt);
+    this.body.rotation.z = this.sBodyRot.update(bodyRotT, dt);
+    this.head.rotation.z = this.sHead.update(headT, dt);
+    this.tail.rotation.z = this.sTail.update(tailT, dt);
   }
 }

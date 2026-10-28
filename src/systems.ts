@@ -30,12 +30,14 @@ export class HandVisualSystem extends createSystem({}) {
   update(): void {
     if (!app) return;
     // In passthrough you see your real hands and controllers; the emulator and
-    // the virtual theatre (no passthrough) need stand-ins (review M7).
+    // the virtual theatre (no passthrough) need stand-ins (review M7). Hands
+    // use Lanternlight's own lantern-lit stand-in (HandStandIns), so IWSDK's
+    // outline hand models stay hidden; its controller models are kept.
     const show = (app.emulated || app.session.mode === 'vr') && app.phase !== 'landing';
     const adapters = this.input.xr.visualAdapters;
     for (const side of ['left', 'right'] as const) {
       const hand = adapters.hand[side].visual?.model;
-      if (hand) hand.visible = show;
+      if (hand) hand.visible = false;
       const ctrl = adapters.controller[side].visual?.model;
       if (ctrl) ctrl.visible = show;
     }

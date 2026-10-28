@@ -17,11 +17,11 @@ Hands first (controllers become rod puppets), seated, about 10 minutes, no insta
 | Piece | What it does | Where |
 |---|---|---|
 | Stage placement | Picks a wall patch in front of the seated viewer from WebXR **plane detection**. It avoids windows, doors and art, stays above desks and monitors (**mesh detection**), and keeps within a comfortable view window of about 40°×28°. It falls back to a **gaze hit-test**, then to a paper scroll. | `src/core/stage-placement.ts` |
-| Shadow projection | The effective light sits below and behind a comfortably held hand (at most 75 cm behind it), as a lamp behind a shadow-puppeteer would, so your hand never hides its own shadow. Bringing your hand back toward you (toward that light) makes the shadow grow: about 1.4× for 20 cm. | `src/core/projection.ts` |
+| Shadow projection | The effective light sits below and behind a comfortably held hand (at most 75 cm behind it), as a lamp behind a shadow-puppeteer would, so your hand never hides its own shadow. Bringing your hand back toward you (toward that light) makes the shadow grow: about 1.4× for 20 cm on a typical wall (on small, near stages the shadow size is capped first). | `src/core/projection.ts` |
 | Shadow model | 25 tracked joints become 2D capsules on the stage, plus palm polygons and a forearm. Rod puppets use the same pipeline. The renderer draws exactly what the physics collides with. | `src/core/shadow-model.ts` |
 | Hand shapes | Rotation-, size- and position-invariant features with hysteresis, validated on IWER's captured hand skeletons with 6 mm noise. The core mechanics (position, size, pinch to bite) need no pose recognition. | `src/core/hand-features.ts` |
 | Story | Prologue, shadow-touch menu, *The Hungry Crocodile*, *Rabbit's Bridge*, *The Moon Wolf*, curtain call. Every beat has an assist (a paper plank for the bridge, a timid wolf, a rabbit that comes anyway); there are no fail states. | `src/core/story.ts`, `src/core/rabbit.ts`, `src/core/physics2d.ts` |
-| Rendering | Hands are drawn as tapered (uneven) SDF capsules plus a contoured palm with thumb webbing; the forearm fades out. The silhouettes render crisp into a small offscreen 4-channel mask, then a blur pass applies a physically scaled penumbra (a 1 cm flame) that widens as the hand nears the lantern and breathes with the flicker. One composite quad on the wall or scroll adds lamplight over passthrough, and a sphere dims the room. Everything is procedural; there are no textures. | `src/render/*` |
+| Rendering | One visual language, written down in [STYLE_GUIDE.md](STYLE_GUIDE.md): a paper-cut shadow theatre lit by one lantern. Hands (and the ghost hints, cast by the same caster) are tapered SDF capsules plus a contoured palm and a fading forearm. Everything renders into a 4-channel mask (384–1024 px, 4× MSAA); one blur pass gives hands a physically scaled penumbra and paper cut-outs a fixed paper edge, so every edge comes from the same lamp. Cut-outs are smooth curves (SVG-style paths) and capsules; cut-outs hide the light behind them. Each tale opens with a wordless title card; the crocodile tale dresses your hand as a crocodile (eye, scutes, teeth that move with the jaw) on a river with reeds. One composite quad adds lamplight over passthrough; the room is dimmed to a warm black with amber spill around the stage. | `src/render/*` |
 | Audio | Fully procedural WebAudio: kalimba lullaby, lantern crackle, foley, HRTF-spatialised. | `src/audio/audio-engine.ts` |
 | Perf | Adaptive quality (stage resolution 384–1024 px, foveation) driven by **missed vsyncs** against the session's real refresh rate, with hysteresis and back-off. Requests 90 Hz on Quest 3/3S/Pro; starts lower (and is capped) on Quest 2 and the original Quest. | `src/core/perf.ts` |
 
@@ -89,7 +89,9 @@ One-time setup in the repo: *Settings → Pages → Source: GitHub Actions*.
 ## Assets and credits
 
 - Every visual and sound is generated at runtime: geometry, shaders and WebAudio synthesis. No
-  third-party art, audio or fonts are shipped; text uses system serif fonts.
+  third-party art or audio is shipped.
+- Typeface: **EB Garamond** by Georg Duffner and Octavio Pardo (SIL Open Font License 1.1),
+  bundled via `@fontsource/eb-garamond` (latin subset).
 - `tools/iwer-poses/` vendors four files of Meta's Immersive Web Emulation Runtime (MIT
   License, Copyright (c) Meta Platforms, Inc.; full text in `tools/iwer-poses/LICENSE`). They are
   used only at test time.

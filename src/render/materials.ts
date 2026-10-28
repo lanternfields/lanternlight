@@ -3,8 +3,8 @@
  *
  * The stage render target is a 4-channel mask, written with MAX blending so
  * overlapping shapes union cleanly (no double-darkening):
- *   R: cast shadows (hands, rod puppets) - soft, penumbra-sized edges
- *   G: cut-out shadows (creatures, scenery, ghost hints)
+ *   R: cast shadows (hands, rod puppets, ghost hints) - penumbra-sized edges
+ *   G: cut-out shadows (creatures, scenery, emblems)
  *   B: light (fireflies, sparkles, lantern-icons)
  *   A: holes (eyes cut into puppets let light through)
  */
@@ -122,6 +122,8 @@ export function createShadowBlurMaterial(): ShaderMaterial {
   return new ShaderMaterial({
     uniforms: {
       tSrc: { value: null },
+      // xy: texel step for the cast-shadow penumbra (R); zw: for the paper
+      // edge of cut-outs and holes (G, A). Both already scaled by radius / 4.
       uStep: { value: new Vector4(0, 0, 0, 0) },
     },
     vertexShader: /* glsl */ `
@@ -130,20 +132,28 @@ export function createShadowBlurMaterial(): ShaderMaterial {
     `,
     fragmentShader: /* glsl */ `
       uniform sampler2D tSrc;
-      uniform vec4 uStep; // xy = texel step along the blur axis (already scaled by radius/4)
+      uniform vec4 uStep;
       varying vec2 vUv;
+      const float W0 = 0.2270270270;
+      const float W1 = 0.1945945946;
+      const float W2 = 0.1216216216;
+      const float W3 = 0.0540540541;
+      const float W4 = 0.0162162162;
       void main() {
         vec4 c = texture2D(tSrc, vUv);
-        float r = c.r * 0.2270270270;
-        r += texture2D(tSrc, vUv + uStep.xy * 1.0).r * 0.1945945946;
-        r += texture2D(tSrc, vUv - uStep.xy * 1.0).r * 0.1945945946;
-        r += texture2D(tSrc, vUv + uStep.xy * 2.0).r * 0.1216216216;
-        r += texture2D(tSrc, vUv - uStep.xy * 2.0).r * 0.1216216216;
-        r += texture2D(tSrc, vUv + uStep.xy * 3.0).r * 0.0540540541;
-        r += texture2D(tSrc, vUv - uStep.xy * 3.0).r * 0.0540540541;
-        r += texture2D(tSrc, vUv + uStep.xy * 4.0).r * 0.0162162162;
-        r += texture2D(tSrc, vUv - uStep.xy * 4.0).r * 0.0162162162;
-        gl_FragColor = vec4(r, c.g, c.b, c.a);
+        // one soft-edge model (STYLE_GUIDE 1): hands get the physical penumbra,
+        // paper cut-outs and holes a fixed, smaller one
+        float r = c.r * W0;
+        vec2 ga = c.ga * W0;
+        r += (texture2D(tSrc, vUv + uStep.xy).r + texture2D(tSrc, vUv - uStep.xy).r) * W1;
+        r += (texture2D(tSrc, vUv + uStep.xy * 2.0).r + texture2D(tSrc, vUv - uStep.xy * 2.0).r) * W2;
+        r += (texture2D(tSrc, vUv + uStep.xy * 3.0).r + texture2D(tSrc, vUv - uStep.xy * 3.0).r) * W3;
+        r += (texture2D(tSrc, vUv + uStep.xy * 4.0).r + texture2D(tSrc, vUv - uStep.xy * 4.0).r) * W4;
+        ga += (texture2D(tSrc, vUv + uStep.zw).ga + texture2D(tSrc, vUv - uStep.zw).ga) * W1;
+        ga += (texture2D(tSrc, vUv + uStep.zw * 2.0).ga + texture2D(tSrc, vUv - uStep.zw * 2.0).ga) * W2;
+        ga += (texture2D(tSrc, vUv + uStep.zw * 3.0).ga + texture2D(tSrc, vUv - uStep.zw * 3.0).ga) * W3;
+        ga += (texture2D(tSrc, vUv + uStep.zw * 4.0).ga + texture2D(tSrc, vUv - uStep.zw * 4.0).ga) * W4;
+        gl_FragColor = vec4(r, ga.x, c.b, ga.y);
       }
     `,
     depthTest: false,

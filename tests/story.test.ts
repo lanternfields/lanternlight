@@ -209,10 +209,45 @@ describe("story: rabbit's bridge", () => {
     const model = new ShadowModel();
     const story = new Story();
     story.enter('bridge');
-    const ev = run(story, model, 8);
+    const ev = run(story, model, 10.5); // 2.3 s title card, then the rabbit waits at the edge
     expect(ev).not.toContain('splash');
     expect(story.view.ghost.visible).toBeGreaterThan(0.2);
     expect(story.view.caption).not.toBe('');
+  });
+});
+
+describe('story: title cards', () => {
+  it('each tale opens with a wordless title card, then its set fades in', () => {
+    const model = new ShadowModel();
+    for (const id of ['croc', 'bridge', 'wolf'] as const) {
+      const story = new Story();
+      story.enter(id);
+      expect(story.view.title.id).toBe(id);
+      expect(story.view.set).toBe(0);
+      run(story, model, 1.0);
+      expect(story.view.title.id).toBe(id);
+      run(story, model, 1.5);
+      expect(story.view.title.id).toBe('');
+      expect(story.view.set).toBe(1);
+    }
+  });
+
+  it('scene changes fade out and in with eased, matching durations', () => {
+    const model = new ShadowModel();
+    const hand = new FakeHand(model);
+    const story = new Story();
+    story.enter('menu');
+    const fades: number[] = [];
+    run(story, model, 6, (t) => {
+      const ic = story.view.icons[0];
+      // off the icon first (icons arm only after a shadow has left them), then on it
+      if (t < 1.2) hand.set(0.3, -0.2);
+      else hand.set(ic.s, ic.t);
+      fades.push(story.view.fade);
+    });
+    // it went dark and came back, without jumps
+    expect(Math.max(...fades)).toBeGreaterThan(0.95);
+    for (let i = 1; i < fades.length; i++) expect(Math.abs(fades[i] - fades[i - 1])).toBeLessThan(0.08);
   });
 });
 
@@ -261,7 +296,7 @@ describe('story: never stuck (review H3, bridge assist)', () => {
     const story = new Story();
     story.enter('wolf');
     const model = new ShadowModel();
-    run(story, model, 3);
+    run(story, model, 6); // title card + moonrise
     expect(story.sizeBeat).toBe(true);
     story.enter('croc');
     expect(story.sizeBeat).toBe(false);

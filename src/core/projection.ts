@@ -156,6 +156,8 @@ export function nominalHandPoint(stage: Readonly<StageFrame>, head: Readonly<V3>
  */
 /** Furthest the effective light sits behind a comfortably held hand (m). */
 export const MAX_LIGHT_BEHIND_HAND = 0.75;
+/** Largest nominal hand shadow, as a fraction of the stage height. */
+export const MAX_NOMINAL_SHADOW = 0.58;
 
 export function computeFocalLight(
   stage: Readonly<StageFrame>,
@@ -173,7 +175,13 @@ export function computeFocalLight(
   // At most MAX_LIGHT_BEHIND_HAND behind the hand: then pulling the hand ~20 cm
   // back toward you grows its shadow by ~1.4x (a light much further back would
   // need the hand right at your face). Far walls get slightly bigger shadows.
-  const d = clamp(handToStage / (k - 1), 0.22, MAX_LIGHT_BEHIND_HAND);
+  let d = clamp(handToStage / (k - 1), 0.22, MAX_LIGHT_BEHIND_HAND);
+  // ...but never so close that a comfortable hand covers more than
+  // MAX_NOMINAL_SHADOW of a small (near-wall) stage: there, size wins over
+  // sensitivity and the story's assists make up the difference.
+  const kMax = (MAX_NOMINAL_SHADOW * stage.height) / NOMINAL_HAND.size;
+  if (kMax > 1.05) d = Math.max(d, handToStage / (kMax - 1));
+  d = Math.min(d, 1.8);
   out.copy(h0);
   addScaled(out, out, dir, d);
   return out;
@@ -192,7 +200,7 @@ export function penumbraWidth(
   // magnification = |light->hit| / |light->p|  => (p->hit)/(light->p) = m - 1
   const w = (2 * flameRadius * Math.max(0, magnification - 1)) / stage.height;
   // Clamped for legibility: soft like lamplight, never mushy.
-  return clamp(w, 0.004, 0.032);
+  return clamp(w, 0.004, 0.022);
 }
 
 /** Angular stage sizing so the stage fits a comfortable, FoV-aware window. */
