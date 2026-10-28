@@ -121,3 +121,42 @@ export function writeJSON(name, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
   return file;
 }
+
+/**
+ * Recording framing (captures only): once the stage is placed, aim the
+ * emulated headset at the stage so the stage fills ~`fill` of the frame
+ * height, with the storyteller's bands (above the light and under the
+ * stage) still in frame. Never used for headset play.
+ */
+export async function aimAtStage(page, { fill = 0.67, centreT = -0.1 } = {}) {
+  await page.waitForFunction(() => {
+    const app = window.__lantern.app;
+    return !!app.placement && !app.replacePending;
+  }, null, { timeout: 20000 });
+  return page.evaluate(
+    ({ fill, centreT }) => {
+      const app = window.__lantern.app;
+      const fr = app.placement.frame;
+      const d = window.IWER_DEVICE;
+      const H = fr.height;
+      const tx = fr.origin.x + fr.up.x * centreT * H;
+      const ty = fr.origin.y + fr.up.y * centreT * H;
+      const tz = fr.origin.z + fr.up.z * centreT * H;
+      const dx = tx - d.position.x;
+      const dy = ty - d.position.y;
+      const dz = tz - d.position.z;
+      const dist = Math.hypot(dx, dy, dz);
+      const yaw = Math.atan2(-dx, -dz);
+      const pitch = Math.atan2(dy, Math.hypot(dx, dz));
+      const l = Math.cos(0.5 * pitch), c = Math.sin(0.5 * pitch), u = Math.cos(0.5 * yaw), s = Math.sin(0.5 * yaw);
+      d.quaternion.w = l * u;
+      d.quaternion.x = c * u;
+      d.quaternion.y = l * s;
+      d.quaternion.z = -c * s;
+      // the stage (1 unit tall) should take `fill` of the frame height
+      d.fovy = 2 * Math.atan((H / fill) / 2 / dist);
+      return { dist: +dist.toFixed(2), fovyDeg: +((d.fovy * 180) / Math.PI).toFixed(1), pitchDeg: +((pitch * 180) / Math.PI).toFixed(1) };
+    },
+    { fill, centreT },
+  );
+}

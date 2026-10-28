@@ -216,6 +216,33 @@ describe("story: rabbit's bridge", () => {
   });
 });
 
+describe('story: the storyteller', () => {
+  it('the curtain call says each line once, then hands over to the menu', () => {
+    const progress = createProgress();
+    progress.completed.croc = progress.completed.bridge = progress.completed.wolf = true;
+    const model = new ShadowModel();
+    const story = new Story(DEFAULT_STORY_SETTINGS, progress);
+    story.enter('wolf');
+    story.enter('finale');
+    const seen: string[] = [];
+    let lastId = -1;
+    for (let i = 0; i < 72 * 26; i++) {
+      story.update(1 / 72, model);
+      const tv = story.view.text;
+      if (tv.line && tv.lineId !== lastId) {
+        lastId = tv.lineId;
+        seen.push(tv.line);
+      }
+    }
+    expect(seen.filter((l) => l === 'The lantern is getting sleepy.').length).toBe(1);
+    expect(seen.filter((l) => l === 'Thank you for lending us your hands.').length).toBe(1);
+    expect(seen).toContain('Goodnight.');
+    expect(story.scene).toBe('menu');
+    // Goodnight ends with the curtain call; the menu's own line follows
+    expect(seen[seen.length - 1]).toBe('Choose a story.');
+  });
+});
+
 describe('story: title cards', () => {
   it('each tale opens with a wordless title card, then its set fades in', () => {
     const model = new ShadowModel();

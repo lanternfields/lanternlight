@@ -35,6 +35,7 @@ const STAGE_FRAG = /* glsl */ `
   uniform float uContrast;
   uniform float uDetail;
   uniform float uLift;
+  uniform float uPoolW;
   uniform float uTime;
   uniform float uUnroll;
   varying vec2 vUv;
@@ -52,7 +53,7 @@ const STAGE_FRAG = /* glsl */ `
     float shadow = clamp(max(m.r, m.g) * (1.0 - m.a), 0.0, 1.0);
     // cut-outs are paper in front of the light: they hide glows behind them
     float glow = m.b * (1.0 - 0.92 * clamp(m.g * (1.0 - m.a), 0.0, 1.0));
-    vec2 q = vec2(st.x / (uAspect * 0.5 + 0.03), st.y / 0.58);
+    vec2 q = vec2(st.x / ((uAspect * 0.5 + 0.03) * uPoolW), st.y / 0.58);
     float qr = length(q);
     // lamplight: a hot core, a long warm falloff, a soft tail into the room
     float pool = (1.0 - smoothstep(0.42, mix(1.06, 1.28, uLift), qr)) * (0.82 + 0.18 * (1.0 - smoothstep(0.0, 0.55, qr)));
@@ -129,6 +130,7 @@ export class StageComposite {
         uContrast: { value: 0 },
         uDetail: { value: 1 },
         uLift: { value: 0 },
+        uPoolW: { value: 1 },
         uTime: { value: 0 },
         uUnroll: { value: 1 },
       },

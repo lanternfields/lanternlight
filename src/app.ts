@@ -46,7 +46,7 @@ export const BUILD: string = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
 import { J } from './core/hand-model.js';
 
 /** Candidate ribbon centres (s, t), in order of preference: up in the light, then under the stage. */
-const RIBBON_SPOTS = [0, 0.31, 0, 0.39, -0.3, 0.33, 0.3, 0.33, 0, 0.47, 0, -0.66];
+const RIBBON_SPOTS = [0, 0.31, 0, 0.39, -0.3, 0.33, 0.3, 0.33, 0, 0.47, 0, -0.64];
 
 export type Phase = 'landing' | 'placing' | 'show' | 'paused';
 
@@ -96,6 +96,7 @@ export class App {
   private ribbonFade = 1;
   private ribbonMoving = false;
   private ribbonBlocked = 0;
+  private ribbonHold = 0;
   private readonly occupied: number[] = [];
   private readonly spotOverlap = new Float32Array(RIBBON_SPOTS.length / 2);
   private trembling = false;
@@ -707,6 +708,9 @@ export class App {
     u.uDetail.value = this.quality.current.shaderDetail && !this.settings.highContrast ? 1 : 0;
     u.uTime.value = time;
     u.uLift.value = this.capture && this.emulated ? 1 : 0;
+    // the crocodile is long: its river gets a wider pool of light
+    const poolW = view.scene === 'croc' ? 1.22 : 1;
+    u.uPoolW.value += (poolW - u.uPoolW.value) * (1 - Math.exp(-3 * dt));
     u.uUnroll.value = Math.min(1, view.light * 1.4 + view.dim * 0.3);
     const du = this.dim.material.uniforms;
     du.uDim.value = this.session.mode === 'vr' ? 0 : this.settings.dimLevel * view.dim;
@@ -761,7 +765,12 @@ export class App {
     const occ = this.occupied;
     occ.length = 0;
     const box = (s0: number, s1: number, t0: number, t1: number) => occ.push(s0, s1, t0, t1);
-    for (const a of this.model.actors) if (a.present) box(a.minS, a.maxS, a.minT, a.maxT);
+    // hands: the hand itself and the start of the forearm (its far end fades to nothing)
+    for (const a of this.model.actors) {
+      if (!a.present) continue;
+      if (a.kind === 'hand') box(a.handMinS - 0.03, a.handMaxS + 0.03, Math.max(a.minT, a.handMinT - 0.12), a.handMaxT + 0.03);
+      else box(a.minS - 0.02, a.maxS + 0.02, a.minT - 0.02, a.maxT + 0.02);
+    }
     const rv = view.rabbit;
     if (rv.visible > 0.3) box(rv.x - 0.1 * rv.scale, rv.x + 0.1 * rv.scale, rv.y - 0.02, rv.y + 0.25 * rv.scale);
     const wv = view.wolf;
@@ -812,19 +821,29 @@ export class App {
     const reveal = this.lineLeaving ? 1 : 1 - Math.pow(1 - a, 3);
     if (tv.line) {
       const best = this.pickRibbon(view);
+      const free = this.spotOverlap[best] < 1e-6;
       if (tv.lineId !== this.ribbonLine) {
-        // a new line opens where nothing is
+        // a new line opens where nothing is - or waits (up to ~1.2 s) for the hand to clear
         this.ribbonLine = tv.lineId;
         this.ribbonSpot = best;
-        this.ribbonFade = 1;
+        this.ribbonFade = free ? 1 : 0;
+        this.ribbonHold = free ? 0 : 1.2;
         this.ribbonMoving = false;
         this.ribbonBlocked = 0;
-      } else if (!this.ribbonMoving && this.spotOverlap[this.ribbonSpot] > 0.0015 && this.spotOverlap[best] < 1e-6) {
+      } else if (this.ribbonHold > 0) {
+        this.ribbonHold -= this.textDt;
+        if (free || this.ribbonHold <= 0) {
+          this.ribbonSpot = free ? best : RIBBON_SPOTS.length / 2 - 1;
+          this.ribbonHold = 0;
+        }
+      } else if (!this.ribbonMoving && this.spotOverlap[this.ribbonSpot] > 0.0002 && free) {
         // something moved under it: after a moment, fade out here and in at a free spot
         this.ribbonBlocked += this.textDt;
         if (this.ribbonBlocked > 0.18) this.ribbonMoving = true;
       } else this.ribbonBlocked = 0;
-      if (this.ribbonMoving) {
+      if (this.ribbonHold > 0) {
+        this.ribbonFade = 0;
+      } else if (this.ribbonMoving) {
         this.ribbonFade = Math.max(0, this.ribbonFade - this.textDt / 0.16);
         if (this.ribbonFade <= 0) {
           this.ribbonSpot = this.pickRibbon(view);

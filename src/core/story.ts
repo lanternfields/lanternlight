@@ -485,7 +485,12 @@ export class Story {
     this.view.title.id = tale ? scene : '';
     this.view.title.t = 0;
     this.lineQueue.length = 0;
-    if (this.lineHold) this.lineHold = false;
+    this.finaleStarted = false;
+    // a held line (“Goodnight.”) ends with its scene and hands over to the next
+    if (this.lineHold) {
+      this.lineHold = false;
+      this.lineDur = 0;
+    }
     if (tale) this.lineDur = 0; // the previous scene's line leaves now
     this.ask(null);
     this.view.rabbit.scale = 1;
@@ -1307,6 +1312,8 @@ export class Story {
 
   /** Curtain call, once all three tales are done. */
   finaleSeen = false;
+  /** The curtain call's opening (lines, fireflies) has run for this visit. */
+  private finaleStarted = false;
   private updateFinale(dt: number): void {
     const v = this.view;
     v.light = 1;
@@ -1316,8 +1323,13 @@ export class Story {
     v.moon.glow = 1;
     v.rabbit.visible = approach(v.rabbit.visible, 1, 4, dt);
     this.stepRabbit(dt, true);
-    // fireflies drift in like stage lights
-    if (this.beatTime < dt * 1.5) {
+    // fireflies drift in like stage lights; the storyteller's last lines (once)
+    if (!this.finaleStarted) {
+      this.finaleStarted = true;
+      this.emit('curtain', 0, 0);
+      this.say(LINES.sleepy);
+      this.say(LINES.thanks);
+      this.say(LINES.goodnight, true);
       for (let i = 0; i < 4; i++) {
         const f = v.fireflies[i];
         f.alive = true;
@@ -1341,12 +1353,6 @@ export class Story {
     if (t > 3.0 && t - dt <= 3.0) {
       this.emit('howl', this.wolf.x, GROUND_T);
       this.wolf.crouch = 0.9;
-    }
-    if (this.beatTime < dt * 1.5) {
-      this.emit('curtain', 0, 0);
-      this.say(LINES.sleepy);
-      this.say(LINES.thanks);
-      this.say(LINES.goodnight, true);
     }
     v.sparkle = t > 1.5 && t < 6 ? 1 : v.sparkle;
     if (t > 15) {

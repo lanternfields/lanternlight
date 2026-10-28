@@ -14,7 +14,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { BASE, OUT, installPoses, setRoom } from './lib.mjs';
+import { BASE, OUT, aimAtStage, installPoses, setRoom } from './lib.mjs';
 
 const room = process.argv[2] ?? 'music_room';
 const yaw = Number(process.argv[3] ?? 90);
@@ -84,10 +84,11 @@ await page.evaluate(
   { yaw },
 );
 await page.waitForTimeout(800);
-await page.evaluate(() => {
-  window.__lantern.app.requestReplace();
-  window.__lantern.goto('intro'); // restart the prologue from the dimming
-});
+await page.evaluate(() => window.__lantern.app.requestReplace());
+// recording framing: the stage fills ~70% of the frame height (captures only)
+console.log('AIM', JSON.stringify(await aimAtStage(page)));
+await page.waitForTimeout(300);
+await page.evaluate(() => window.__lantern.goto('intro')); // restart the prologue from the dimming
 await page.addScriptTag({ path: path.join(here, 'capture', 'director.js') });
 await page.waitForTimeout(400);
 await page.evaluate((c) => {

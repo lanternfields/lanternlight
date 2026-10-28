@@ -394,18 +394,22 @@
     ctl.tau = 0.16;
     let t0 = time;
     while (S().scene === 'croc' && S().stats.eaten < 7 && time - t0 < 45) {
-      const ff = S().view.fireflies.find((f) => f.alive && f.glow > 0.5);
+      // the rightmost bright firefly; the mouth never goes far left (the
+      // crocodile's body trails left of its mouth and must stay in the light)
+      let ff = null;
+      for (const f of S().view.fireflies) if (f.alive && f.glow > 0.5 && (!ff || f.x > ff.x)) ff = f;
       if (!ff) {
         yield;
         continue;
       }
-      shadowTo(ff.x, ff.y, { feature: 'mouth' });
+      shadowTo(Math.max(-0.1, ff.x), Math.min(0.12, ff.y), { feature: 'mouth' });
       setPose('crocOpen', 0.35);
       let tt = 0;
       while (tt < 3) {
         tt += yield;
         const m = feature('mouth');
-        if (m && Math.hypot(m[0] - ff.x, m[1] - ff.y) < 0.045 && tt > 0.6) break;
+        // the firefly is drawn to an open mouth: bite when it is close
+        if (m && Math.hypot(m[0] - ff.x, m[1] - ff.y) < 0.06 && tt > 0.6) break;
       }
       // bite! (fast, then a held beat, then the jaw opens again)
       setPose('crocBite', 0.11);
