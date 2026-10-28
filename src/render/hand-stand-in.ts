@@ -49,6 +49,7 @@ const BONE_VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   uniform vec3 uLantern;
   uniform float uGlow;
+  uniform float uKey;
   uniform float uMask;
   uniform vec3 uSO;
   uniform vec3 uSN;
@@ -86,6 +87,8 @@ const FRAG = /* glsl */ `
     vec3 skin = vec3(0.42, 0.29, 0.22);
     vec3 lamp = vec3(1.0, 0.68, 0.38);
     vec3 col = skin * (0.035 + lamp * lambert * falloff * 0.9 * uGlow) + lamp * rim * 0.16 * uGlow;
+    // recordings: a soft key from the camera side so the hand reads in a dim room
+    col += uKey * (skin * (0.1 + 0.32 * max(dot(n, v), 0.0)) + lamp * rim * 0.22 + skin * lamp * lambert * falloff * 1.4);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -97,6 +100,7 @@ class StandInHand {
   private readonly joints: InstancedMesh;
   private readonly bones: InstancedMesh;
   private readonly palm: InstancedMesh;
+  private readonly arm: InstancedMesh;
   private readonly m = new Matrix4();
   private readonly q = new Quaternion();
   private readonly a = new Vector3();
@@ -108,6 +112,8 @@ class StandInHand {
   private static readonly UP = new Vector3(0, 1, 0);
 
   private readonly rad = new Float32Array(MAX_BONES * 2);
+  private readonly armRad = new Float32Array(2);
+  private readonly armRadAttr = new InstancedBufferAttribute(this.armRad, 2);
   private readonly radAttr = new InstancedBufferAttribute(this.rad, 2);
 
   constructor(material: ShaderMaterial, boneMaterial: ShaderMaterial) {
@@ -117,15 +123,22 @@ class StandInHand {
     bone.setAttribute('iRad', this.radAttr);
     this.bones = new InstancedMesh(bone, boneMaterial, MAX_BONES);
     this.palm = new InstancedMesh(new SphereGeometry(1, 24, 16), material, 1);
-    for (const im of [this.joints, this.bones, this.palm]) {
+    // the forearm, so a hand never floats in a wide shot
+    const armGeo = new CylinderGeometry(1, 1, 1, 20, 1, true);
+    armGeo.setAttribute('iRad', this.armRadAttr);
+    this.arm = new InstancedMesh(armGeo, boneMaterial, 1);
+    this.armRad[0] = 0.034; // elbow (cylinder bottom)
+    this.armRad[1] = 0.026; // wrist (top)
+    for (const im of [this.joints, this.bones, this.palm, this.arm]) {
       im.frustumCulled = false;
       this.group.add(im);
     }
   }
 
-  update(hand: HandFrame): void {
+  update(hand: HandFrame, head: { x: number; y: number; z: number }): void {
     this.group.visible = hand.tracked;
     if (!hand.tracked) return;
+    this.updateArm(hand, head);
     const j = hand.joints;
     for (let i = 0; i < 25; i++) {
       const r = hand.radii[i];
@@ -169,6 +182,32 @@ class StandInHand {
     this.palm.setMatrixAt(0, this.m);
     this.palm.instanceMatrix.needsUpdate = true;
   }
+
+  /** Wrist toward the elbow: toward the same-side shoulder and down (as the shadow model's forearm). */
+  private updateArm(hand: HandFrame, head: { x: number; y: number; z: number }): void {
+    const j = hand.joints;
+    const w = j[J.wrist];
+    const side = hand.handedness === 'left' ? -1 : 1;
+    // shoulder: below the head, out to the side (side axis ~ perpendicular to the hand's reach)
+    this.a.set(head.x - w.x, 0, head.z - w.z);
+    const lh = this.a.length() || 1;
+    this.a.divideScalar(lh);
+    const sx = -this.a.z * side;
+    const sz = this.a.x * side;
+    this.b.set(head.x + sx * 0.18 - w.x, head.y - 0.3 - w.y, head.z + sz * 0.18 - w.z).normalize();
+    this.b.y -= 0.9;
+    this.b.normalize();
+    // blend with the hand's own axis (wrist away from the knuckles)
+    this.d.set(w.x - j[J.middleMeta].x, w.y - j[J.middleMeta].y, w.z - j[J.middleMeta].z).normalize();
+    this.b.addScaledVector(this.d, 1.4).normalize();
+    const len = 0.27;
+    this.q.setFromUnitVectors(StandInHand.UP, this.s.copy(this.b).negate());
+    this.s.set(1, len, 1);
+    this.a.set(w.x + this.b.x * len * 0.5, w.y + this.b.y * len * 0.5, w.z + this.b.z * len * 0.5);
+    this.m.compose(this.a, this.q, this.s);
+    this.arm.setMatrixAt(0, this.m);
+    this.arm.instanceMatrix.needsUpdate = true;
+  }
 }
 
 export class HandStandIns {
@@ -177,6 +216,7 @@ export class HandStandIns {
     uniforms: {
       uLantern: { value: new Vector3(0, 0.8, -0.3) },
       uGlow: { value: 1 },
+      uKey: { value: 0 },
       uMask: { value: 0 },
       uSO: { value: new Vector3() },
       uSN: { value: new Vector3(0, 0, 1) },
@@ -203,7 +243,14 @@ export class HandStandIns {
    * @param stage when given, the stand-in is kept out of the stage rectangle
    * (recordings from the emulator); null in the virtual theatre.
    */
-  update(visible: boolean, hands: readonly HandFrame[], lantern: Vector3, glow: number, stage: StageFrame | null = null): void {
+  update(
+    visible: boolean,
+    hands: readonly HandFrame[],
+    lantern: Vector3,
+    glow: number,
+    stage: StageFrame | null = null,
+    head: { x: number; y: number; z: number } = { x: 0, y: 1.2, z: 0 },
+  ): void {
     this.group.visible = visible;
     if (!visible) return;
     const u = this.material.uniforms;
@@ -218,6 +265,6 @@ export class HandStandIns {
     }
     (this.material.uniforms.uLantern.value as Vector3).copy(lantern);
     this.material.uniforms.uGlow.value = 0.35 + 0.65 * glow;
-    for (let i = 0; i < 2; i++) this.hands[i].update(hands[i]);
+    for (let i = 0; i < 2; i++) this.hands[i].update(hands[i], head);
   }
 }

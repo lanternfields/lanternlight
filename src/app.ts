@@ -32,6 +32,7 @@ import { Lantern } from './render/lantern.js';
 import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
 import { StageText } from './render/stage-text.js';
 import { easeInCubic, easeOutCubic } from './core/ease.js';
+import { CaptureProps } from './render/capture-props.js';
 import { HandStandIns } from './render/hand-stand-in.js';
 import { TextLabel } from './render/text.js';
 import { LanternMenu, MenuAction } from './render/lantern-menu.js';
@@ -103,6 +104,8 @@ export class App {
   private lineLeaving = false;
   /** Lantern-lit stand-ins for your hands where passthrough can't show them. */
   readonly standIns = new HandStandIns();
+  readonly props = new CaptureProps();
+  private readonly tmpBase = new Vector3();
   private readonly flameW = new Vector3();
   readonly audio = new AudioEngine();
   readonly menu: LanternMenu;
@@ -155,6 +158,20 @@ export class App {
 
   /** Recording look (?capture=1, emulator only): a believable room instead of the emulator's placeholder. */
   readonly capture: boolean;
+  /** Recording shot (set by the capture script): 'wide' and 'inset' show the stand-in hands whole. */
+  captureShot: 'close' | 'wide' | 'inset' = 'close';
+  private headLocked = false;
+  private readonly lockedHead = new V3();
+  private readonly lockedFwd = new V3();
+  private readonly lockedUp = new V3();
+
+  /** Capture: keep the viewer's pose from now on, whatever the camera does next. */
+  lockCaptureHead(): void {
+    this.lockedHead.copy(this.head);
+    this.lockedFwd.copy(this.headForward);
+    this.lockedUp.copy(this.headUp);
+    this.headLocked = true;
+  }
 
   constructor(readonly world: World, opts: { tester?: boolean; capture?: boolean } = {}) {
     this.tester = !!opts.tester;
@@ -183,6 +200,7 @@ export class App {
     add(this.hud.mesh);
     add(this.theatre.group);
     add(this.standIns.group);
+    add(this.props.group);
     const grips = world.playerSpaceEntities.gripSpaces;
     world.createTransformEntity(this.puppets[0].group, { parent: grips.left, persistent: true });
     world.createTransformEntity(this.puppets[1].group, { parent: grips.right, persistent: true });
@@ -330,6 +348,12 @@ export class App {
     this.headForward.set(this.tmpV.x, this.tmpV.y, this.tmpV.z);
     this.tmpV.set(0, 1, 0).applyQuaternion(this.tmpQ);
     this.headUp.set(this.tmpV.x, this.tmpV.y, this.tmpV.z);
+    if (this.headLocked) {
+      // capture: the camera moves for other shots, the viewer (and so the show) does not
+      this.head.copy(this.lockedHead);
+      this.headForward.copy(this.lockedFwd);
+      this.headUp.copy(this.lockedUp);
+    }
 
     for (const h of this.hands) h.tracked = false;
     for (const r of this.rods) r.connected = false;
@@ -676,8 +700,19 @@ export class App {
     this.lantern.flamePosition(this.flameW);
     // (emulator: kept out of the stage so recordings show the show; VR theatre: whole hands)
     // recordings (?capture=1) show the shadows alone; the emulator keeps stand-ins out of the stage
-    const showStandIns = (this.emulated && !this.capture) || this.session.mode === 'vr';
-    this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, this.emulated && this.session.mode !== 'vr' ? fr : null);
+    // emulator: stand-in hands, kept out of the stage only in close-ups (wide and
+    // inset shots show the whole hand and arm); the VR theatre shows them whole
+    const showStandIns = this.emulated || this.session.mode === 'vr';
+    const mask = this.emulated && this.session.mode !== 'vr' && this.captureShot === 'close';
+    this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? 1 : 0;
+    this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
+    // recordings: a little table under a floating lantern (never on a headset)
+    {
+      const g = this.lantern.group.position;
+      this.tmpBase.set(g.x, g.y, g.z);
+      const yaw = Math.atan2(fr.normal.x, fr.normal.z);
+      this.props.update(this.capture && this.emulated && !this.lanternPlacement?.onSurface, this.tmpBase, 0, this.flameW, view.flame, yaw);
+    }
     for (let i = 0; i < 2; i++) {
       const vis = this.rods[i].connected;
       this.puppets[i].group.visible = vis;
@@ -860,7 +895,7 @@ export class App {
     this.promptText.set(prompt);
     const pa = tv.promptAlpha;
     this.promptText.show(pa * pa * (3 - 2 * pa) * vis);
-    if (this.promptText.mesh.visible) this.placeText(this.promptText, fr, 0, -0.5 - STAGE_PAD - this.promptText.heightUnits * 0.42);
+    if (this.promptText.mesh.visible) this.placeText(this.promptText, fr, 0, -0.6 - this.promptText.heightUnits * 0.42);
     // title: small caps above the emblem ring, timed with the card
     this.titleText.set(tv.title);
     const t = view.title.t;

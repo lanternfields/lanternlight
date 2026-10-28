@@ -87,6 +87,77 @@ await page.waitForTimeout(800);
 await page.evaluate(() => window.__lantern.app.requestReplace());
 // recording framing: the stage fills ~70% of the frame height (captures only)
 console.log('AIM', JSON.stringify(await aimAtStage(page)));
+// The three camera poses of a recording, all looking at the same live scene:
+// close (the stage), wide (lantern, hand and wall: proves the chain), and a
+// side view of the hand for the picture-in-picture inset. The viewer's pose
+// is locked first, so moving the camera never changes the show.
+await page.evaluate(() => {
+  const app = window.__lantern.app;
+  app.lockCaptureHead();
+  const d = window.IWER_DEVICE;
+  const fr = app.placement.frame;
+  const H = fr.height;
+  const head = { x: d.position.x, y: d.position.y, z: d.position.z };
+  const look = (pos, target, fovDeg) => {
+    const dx = target.x - pos.x;
+    const dy = target.y - pos.y;
+    const dz = target.z - pos.z;
+    const yaw = Math.atan2(-dx, -dz);
+    const pitch = Math.atan2(dy, Math.hypot(dx, dz));
+    const l = Math.cos(0.5 * pitch), c = Math.sin(0.5 * pitch), u = Math.cos(0.5 * yaw), sn = Math.sin(0.5 * yaw);
+    return { pos, q: { w: l * u, x: c * u, y: l * sn, z: -c * sn }, fovy: (fovDeg * Math.PI) / 180 };
+  };
+  const add = (a, v, k) => ({ x: a.x + v.x * k, y: a.y + v.y * k, z: a.z + v.z * k });
+  const lp = app.lanternPlacement ? app.lanternPlacement.position : { x: head.x, y: head.y - 0.4, z: head.z - 0.3 };
+  const centre = add(fr.origin, fr.up, -0.1 * H);
+  const up = { x: 0, y: 1, z: 0 };
+  // wide: over the viewer's shoulder, the lantern and the hand in the foreground, the wall beyond
+  let wpos = add(head, fr.normal, 0.62);
+  wpos = add(wpos, up, 0.26);
+  wpos = add(wpos, fr.right, 0.34);
+  const wtarget = { x: centre.x * 0.62 + lp.x * 0.38, y: centre.y * 0.62 + lp.y * 0.38, z: centre.z * 0.62 + lp.z * 0.38 };
+  // inset: a three-quarter view from the wall side and the viewer's right, so the
+  // open palm faces the camera and "back toward you" reads as moving away from it
+  let ipos = add(head, fr.right, 0.5);
+  ipos = add(ipos, fr.normal, -0.92);
+  ipos = add(ipos, up, -0.08);
+  let itarget = add(head, fr.normal, -0.36);
+  itarget = add(itarget, up, -0.2);
+  window.__shots = {
+    close: { pos: { ...head }, q: { w: d.quaternion.w, x: d.quaternion.x, y: d.quaternion.y, z: d.quaternion.z }, fovy: d.fovy },
+    wide: look(wpos, wtarget, 60),
+    inset: look(ipos, itarget, 44),
+  };
+  const slerp = (a, b, t) => {
+    let cos = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    let bb = b;
+    if (cos < 0) {
+      cos = -cos;
+      bb = { x: -b.x, y: -b.y, z: -b.z, w: -b.w };
+    }
+    let k0 = 1 - t;
+    let k1 = t;
+    if (cos < 0.9995) {
+      const th = Math.acos(cos);
+      const sn = Math.sin(th);
+      k0 = Math.sin((1 - t) * th) / sn;
+      k1 = Math.sin(t * th) / sn;
+    }
+    return { x: a.x * k0 + bb.x * k1, y: a.y * k0 + bb.y * k1, z: a.z * k0 + bb.z * k1, w: a.w * k0 + bb.w * k1 };
+  };
+  window.__setCamera = (a, b, t) => {
+    const p = { x: a.pos.x + (b.pos.x - a.pos.x) * t, y: a.pos.y + (b.pos.y - a.pos.y) * t, z: a.pos.z + (b.pos.z - a.pos.z) * t };
+    const q = slerp(a.q, b.q, t);
+    d.position.x = p.x;
+    d.position.y = p.y;
+    d.position.z = p.z;
+    d.quaternion.x = q.x;
+    d.quaternion.y = q.y;
+    d.quaternion.z = q.z;
+    d.quaternion.w = q.w;
+    d.fovy = a.fovy + (b.fovy - a.fovy) * t;
+  };
+});
 await page.waitForTimeout(300);
 await page.evaluate(() => window.__lantern.goto('intro')); // restart the prologue from the dimming
 await page.addScriptTag({ path: path.join(here, 'capture', 'director.js') });
@@ -101,16 +172,37 @@ let last = { done: false, t: 0 };
 // The soundtrack: every frame's story sound events, flame and music level, at
 // the frame's video time. Rendered offline afterwards by the app's own engine.
 const audioLog = [];
+const insetsDir = path.join(OUT, `${name}-insets`);
+fs.rmSync(insetsDir, { recursive: true, force: true });
+fs.mkdirSync(insetsDir, { recursive: true });
+const insetAlpha = {};
 while (!last.done && last.t < maxSeconds) {
   last = await page.evaluate((fps) => {
     const r = window.__director.tick(1 / fps);
-    window.__vclock.step(1000 / fps);
     const app = window.__lantern.app;
+    const sh = window.__shots;
+    // the camera for this frame: close <-> wide (eased by the director)
+    const w = r.shot ? r.shot.wide : 0;
+    window.__setCamera(sh.close, sh.wide, w);
+    app.captureShot = w > 0.02 ? 'wide' : 'close';
+    window.__vclock.step(1000 / fps);
     r.audio = [app.story.view.flame, app.lastMusic, app.story.events.map((e) => [e.type, e.s, e.t, e.value])];
     return r;
   }, FPS);
   audioLog.push([n / FPS, last.audio[0], last.audio[1], last.audio[2]]);
+  const frameIndex = n;
   await grab();
+  if (last.shot && last.shot.inset > 0.01) {
+    // the inset: the same instant from the side (a zero-length frame: nothing advances)
+    await page.evaluate(() => {
+      const app = window.__lantern.app;
+      app.captureShot = 'inset';
+      window.__setCamera(window.__shots.inset, window.__shots.inset, 0);
+      window.__vclock.step(0);
+    });
+    await page.screenshot({ path: path.join(insetsDir, String(frameIndex).padStart(6, '0') + '.jpg'), type: 'jpeg', quality: 90 });
+    insetAlpha[frameIndex] = +last.shot.inset.toFixed(3);
+  }
   if (n % 600 === 0) console.log('FRAME', n, 't', last.t.toFixed(1), last.scene, last.beat, `${((Date.now() - t0) / 1000).toFixed(0)}s real`);
 }
 const marks = await page.evaluate(() => window.__director.marks);
@@ -193,6 +285,12 @@ try {
 }
 await browser.close();
 fs.writeFileSync(path.join(OUT, `${name}.marks.json`), JSON.stringify({ fps: FPS, landingSeconds: 1.5, marks }, null, 2));
+// picture-in-picture: composite the hand insets onto their frames
+if (Object.keys(insetAlpha).length) {
+  fs.writeFileSync(path.join(insetsDir, 'alpha.json'), JSON.stringify(insetAlpha));
+  const ins = spawnSync('python', ['-I', path.join(here, 'tools', 'inset_composite.py'), framesDir, insetsDir], { encoding: 'utf8' });
+  console.log('INSETS', Object.keys(insetAlpha).length, ins.status === 0 ? 'composited' : 'FAILED ' + ins.stderr);
+}
 const mp4 = path.join(OUT, `${name}.mp4`);
 const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(framesDir, '%06d.jpg'), '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', mp4], { encoding: 'utf8' });
 if (ff.status !== 0) console.log('ffmpeg failed', ff.stderr);

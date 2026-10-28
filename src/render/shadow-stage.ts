@@ -46,7 +46,12 @@ import {
   createIconMaterial,
 } from './materials.js';
 
-export const STAGE_PAD = 0.1;
+/**
+ * Margin around the stage (stage units) that is still rendered: wide enough
+ * that the lamplight falls off and forearms fade out before the quad's edge,
+ * so the stage never ends on a hard lit rectangle.
+ */
+export const STAGE_PAD = 0.32;
 /** Edge softness of paper cut-outs and holes (stage units): one soft-edge model (STYLE_GUIDE 1). */
 export const PAPER_EDGE = 0.0045;
 const EAR_TWITCH: readonly (readonly [number, number])[] = [

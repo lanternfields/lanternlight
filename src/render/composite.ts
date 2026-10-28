@@ -50,7 +50,11 @@ const STAGE_FRAG = /* glsl */ `
   void main() {
     vec2 st = vec2((vUv.x - 0.5) * (uAspect + 2.0 * uPad), (vUv.y - 0.5) * (1.0 + 2.0 * uPad));
     vec4 m = texture2D(tStage, vUv);
-    float shadow = clamp(max(m.r, m.g) * (1.0 - m.a), 0.0, 1.0);
+    // a soft feather at the quad's edge: light and shadows fade out, never cut off
+    vec2 halfQ = vec2(uAspect * 0.5 + uPad, 0.5 + uPad);
+    vec2 inner = halfQ - abs(st);
+    float edgeF = smoothstep(0.0, 0.22, min(inner.x, inner.y));
+    float shadow = clamp(max(m.r, m.g) * (1.0 - m.a), 0.0, 1.0) * edgeF;
     // cut-outs are paper in front of the light: they hide glows behind them
     float glow = m.b * (1.0 - 0.92 * clamp(m.g * (1.0 - m.a), 0.0, 1.0));
     vec2 q = vec2(st.x / ((uAspect * 0.5 + 0.03) * uPoolW), st.y / 0.58);
@@ -59,7 +63,7 @@ const STAGE_FRAG = /* glsl */ `
     float pool = (1.0 - smoothstep(0.42, mix(1.06, 1.28, uLift), qr)) * (0.82 + 0.18 * (1.0 - smoothstep(0.0, 0.55, qr)));
     // recordings: a longer, softer tail so a phone screen can read the edges
     pool += uLift * 0.1 * (1.0 - smoothstep(0.9, 1.7, qr));
-    pool *= uLight * (0.94 + 0.06 * uFlicker);
+    pool *= uLight * (0.94 + 0.06 * uFlicker) * edgeF;
     // colour temperature: lamp-core at the centre, lamp-mid, lamp-edge at the rim
     vec3 core = vec3(1.0, 0.851, 0.627);
     vec3 mid = vec3(0.969, 0.651, 0.353);

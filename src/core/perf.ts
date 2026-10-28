@@ -84,10 +84,11 @@ export interface QualityLevel {
  * penumbra is specified in stage units.
  */
 export const QUALITY_LEVELS: readonly QualityLevel[] = [
-  { level: 0, stageResolution: 384, particles: 12, shaderDetail: true, foveation: 1 },
-  { level: 1, stageResolution: 512, particles: 24, shaderDetail: true, foveation: 0.75 },
-  { level: 2, stageResolution: 768, particles: 48, shaderDetail: true, foveation: 0.5 },
-  { level: 3, stageResolution: 1024, particles: 48, shaderDetail: true, foveation: 0.35 },
+  // (sizes cover the stage plus its soft margin: ~490 px per stage unit at the top level)
+  { level: 0, stageResolution: 480, particles: 12, shaderDetail: true, foveation: 1 },
+  { level: 1, stageResolution: 640, particles: 24, shaderDetail: true, foveation: 0.75 },
+  { level: 2, stageResolution: 960, particles: 48, shaderDetail: true, foveation: 0.5 },
+  { level: 3, stageResolution: 1280, particles: 48, shaderDetail: true, foveation: 0.35 },
 ];
 
 export interface AdaptiveOptions {

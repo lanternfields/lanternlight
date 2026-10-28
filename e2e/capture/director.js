@@ -323,6 +323,26 @@
   const icon = (id) => S().view.icons.find((i) => i.id === id);
   const marks = [];
   const mark = (label) => marks.push({ label, t: +time.toFixed(2) });
+
+  // ---- camera shots for recordings (read by e2e/capture.mjs each frame)
+  // wide: 1 = the establishing shot (lantern, hand and wall), 0 = close on the stage
+  // inset: 1 = a picture-in-picture side view of the hand
+  const ease3 = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const shotCh = {
+    wide: { from: 1, to: 1, t0: 0, dur: 1 },
+    inset: { from: 0, to: 0, t0: 0, dur: 0.35 },
+  };
+  const setShot = (key, to, dur) => {
+    const c = shotCh[key];
+    c.from = shotValue(key);
+    c.to = to;
+    c.t0 = time;
+    c.dur = dur;
+  };
+  const shotValue = (key) => {
+    const c = shotCh[key];
+    return c.from + (c.to - c.from) * ease3((time - c.t0) / c.dur);
+  };
   let snapLabel = null;
   const snap = (label) => {
     snapLabel = label;
@@ -372,6 +392,8 @@
     yield* until(() => S().beat === 'rabbitHint', 15);
     yield* wait(1.6);
     mark('rabbit');
+    // the establishing shot has shown hand, lantern and wall: move in to the stage
+    setShot('wide', 0, 2.8);
     setPose('peace', 0.5);
     yield* until(() => S().stats.rabbitBirths > 0, 20);
     yield* wait(2.2);
@@ -412,12 +434,15 @@
         if (m && Math.hypot(m[0] - ff.x, m[1] - ff.y) < 0.06 && tt > 0.6) break;
       }
       // bite! (fast, then a held beat, then the jaw opens again)
+      if (S().stats.chomps === 0) setShot('inset', 1, 0.35); // show the hand making the snap
       setPose('crocBite', 0.11);
       yield* wait(0.38);
       setPose('crocOpen', 0.32);
       yield* wait(0.4);
+      if (S().stats.chomps >= 2 && shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     }
     ctl.size = 1;
+    if (shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     mark('croc-fed');
     yield* until(() => S().scene !== 'croc', 15);
     rest();
@@ -429,10 +454,16 @@
     setPose('flat', 0.6);
     orient(-30, 90, 0);
     ctl.tau = 0.3;
+    setShot('inset', 1, 0.35); // the hand laid flat, from the side
     t0 = time;
+    let insetOff = false;
     while (S().scene === 'bridge' && S().stats.crossings < 3 && time - t0 < 70) {
       const round = S().stats.crossings;
       shadowTo(0.0, -0.37, { feature: 'handTop', size: [1.0, 1.08, 1.2][Math.min(2, round)] });
+      if (!insetOff && time - t0 > 4.5) {
+        insetOff = true;
+        setShot('inset', 0, 0.35);
+      }
       yield;
     }
     ctl.tau = 0.16;
@@ -471,12 +502,15 @@
     // above and right of where the wolf will stop, so its shape stays clear
     shadowTo(0.42, 0.27, { size: 1 });
     yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 10);
-    // grow: a slow, continuous swell (the wolf hesitates as it builds)
+    // grow: a slow, continuous swell (the wolf hesitates as it builds) - the
+    // inset shows why: the hand comes back toward you
+    setShot('inset', 1, 0.35);
     ctl.tau = 0.5;
     shadowTo(0.42, 0.27, { size: 1.62 });
     yield* until(() => S().wolf.state === 'rear' || S().wolf.state === 'flee', 8);
     mark('wolf-scared');
     yield* wait(0.45);
+    setShot('inset', 0, 0.4);
     ctl.tau = 0.35;
     rest();
     setPose('relaxed', 0.6);
@@ -701,13 +735,14 @@
   window.__director = {
     marks,
     start(name = 'coreLoop') {
+      if (name !== 'coreLoop') shotCh.wide.from = shotCh.wide.to = 0;
       gen = { coreLoop, stills, wolfClip, openingClip, textStills }[name]();
       gen.next(0);
       done = false;
       time = 0;
     },
     tick(dt) {
-      if (!gen || done) return { done: true, t: time };
+      if (!gen || done) return { done: true, t: time, shot: { wide: shotValue('wide'), inset: shotValue('inset') } };
       // Keep IWER in scripted control: its remote-control release timer runs on
       // real time and would otherwise hand the hands back to the DevUI.
       if (dev.controlMode !== 'programmatic') dev.controlMode = 'programmatic';
@@ -718,7 +753,7 @@
       const s = S();
       const snapNow = snapLabel;
       snapLabel = null;
-      return { done, t: time, scene: s.scene, beat: s.beat, snap: snapNow };
+      return { done, t: time, scene: s.scene, beat: s.beat, snap: snapNow, shot: { wide: shotValue('wide'), inset: shotValue('inset') } };
     },
     get time() {
       return time;
