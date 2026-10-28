@@ -595,10 +595,13 @@ export class Story {
     // after the finale the hub keeps holding "Goodnight." (no flicker between scenes)
     const tv = this.view.text;
     const keepGoodnight = scene === 'menu' && this.finaleSeen && this.lineHold && tv.line === COPY.F5;
-    // a held line ("Goodnight.") ends with its scene and hands over to the next
-    if (this.lineHold && !keepGoodnight) {
+    // scene changes happen under a full fade: the old scene's line goes with it
+    // (it never reappears half-faded over the next scene's title card)
+    if (!keepGoodnight) {
       this.lineHold = false;
       this.lineDur = 0;
+      tv.line = '';
+      tv.lineAlpha = 0;
     }
     if (carded) this.lineDur = 0; // the previous scene's line leaves now
     this.ask(null);
@@ -1071,7 +1074,7 @@ export class Story {
           this.emit('rabbitBorn', s, t);
           v.sparkle = 1;
           this.ask(null);
-          this.say(COPY.P3);
+          // (P3 waits for Pip to land: Pip springs off your fingers, maybe through the ribbon's band)
           this.discover('rabbit');
           this.setBeat('born');
         }
@@ -1082,7 +1085,11 @@ export class Story {
         v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
         this.stepRabbit(dt, true);
         // Pip's introduction reads in the prologue before the menu
-        if (((this.beatTime > 4.6 && this.rabbit.state === 'idle') || this.beatTime > 9) && !this.pendingScene) {
+        const landed = this.rabbit.state === 'idle' && this.rabbit.y + PIP_EXTENT.height * v.rabbit.scale < 0.12;
+        if ((landed && this.beatTime > 0.4) || this.beatTime > 2.5) this.sayOnce('P3');
+        // Pip's introduction reads in full before the hub
+        const ready = (this.beatTime > 4.6 && this.rabbit.state === 'idle') || this.beatTime > 9;
+        if (((ready && this.linesIdle()) || this.beatTime > 16) && !this.pendingScene) {
           this.progress.visits++;
           this.requestScene('menu');
         }

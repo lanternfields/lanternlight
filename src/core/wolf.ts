@@ -164,7 +164,7 @@ export class Wolf {
       case 'return': {
         // peeks back in and eases to a stop where it sits to sing
         const left = Math.max(0, this.x - this.singX);
-        ease(-Math.min(0.32, left * 2.2 + 0.004), 5);
+        ease(-Math.min(0.42, left * 2.2 + 0.004), 5);
         if (this.x <= this.singX + 0.004) {
           this.x = Math.max(this.x, this.singX);
           this.setState('howl');

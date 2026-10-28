@@ -367,7 +367,10 @@
 
   function* chooseTale(id) {
     yield* until(() => S().scene === 'menu', 30);
-    yield* wait(1.4);
+    // the hub's line reads in full before a tale is chosen
+    yield* until(() => !!S().view.text.line, 2);
+    yield* until(() => !S().view.text.line, 7);
+    yield* wait(0.2);
     const ic = icon(id);
     setPose('open', 0.5);
     orient(60, 0, 0);
@@ -428,6 +431,8 @@
       const l0 = S().view.text.lineId;
       yield* until(() => !S().view.title.id, 5);
       yield* until(() => S().view.text.lineId >= l0 + 2, 10);
+      // ...and has been read: Pip steps onto the hand as "on tiptoe" comes up
+      yield* until(() => !S().view.text.line, 6);
     }
     setPose('bridgeHand', 0.6);
     orient(-22, 90, BRIDGE_ROLL);

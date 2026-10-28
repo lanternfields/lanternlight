@@ -92,8 +92,8 @@ describe('story: first five minutes', () => {
     expect(story.beat).toBe('rabbitHint');
     ev = run(story, model, 1, () => hand.set(0, 0, 'rabbit'));
     expect(ev).toContain('rabbitBorn');
-    // Rabbit drops to the ground and the menu opens.
-    ev = run(story, model, 5, () => hand.hide());
+    // Rabbit drops to the ground, Pip's line is read in full, and the menu opens.
+    ev = run(story, model, 7, () => hand.hide());
     expect(story.scene).toBe('menu');
     expect(Math.abs(story.rabbit.y - GROUND_T)).toBeLessThan(0.02);
   });
@@ -314,7 +314,7 @@ describe('progress', () => {
     run(story, model, 3);
     run(story, model, 4.5, () => hand.set(0, 0));
     run(story, model, 1, () => hand.set(0, 0, 'rabbit'));
-    run(story, model, 5, () => hand.hide());
+    run(story, model, 7, () => hand.hide());
     expect(progress.discovered).toContain('rabbit');
     expect(progress.visits).toBe(1);
   });
