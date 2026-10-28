@@ -471,7 +471,8 @@
         yield;
         continue;
       }
-      shadowTo(Math.max(-0.1, ff.x), Math.min(0.12, ff.y), { feature: 'mouth' });
+      // ...and low enough that the crocodile stays under the storyteller's band
+      shadowTo(Math.max(-0.1, ff.x), Math.min(0.0, ff.y), { feature: 'mouth' });
       setPose('crocOpen', 0.35);
       let tt = 0;
       while (tt < 3) {
@@ -514,7 +515,9 @@
     rest();
     setPose('relaxed', 0.4);
     yield* until(() => !S().view.title.id, 5);
-    yield* wait(0.9);
+    // the opening line reads first; then the hand comes up (above the action)
+    yield* until(() => !!S().view.text.line, 2);
+    yield* until(() => !S().view.text.line, 6);
     setPose('open', 0.6);
     orient(60, 0, 0);
     ctl.tau = 0.4;

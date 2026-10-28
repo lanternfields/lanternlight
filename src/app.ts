@@ -701,7 +701,8 @@ export class App {
     // inset shots show the whole hand and arm); the VR theatre shows them whole
     const showStandIns = this.emulated || this.session.mode === 'vr';
     const mask = this.emulated && this.session.mode !== 'vr' && this.captureShot === 'close';
-    this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? 1 : 0;
+    // recordings: a soft key in wide and inset shots; close-ups keep the hands dim
+    this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? (this.captureShot === 'close' ? 0.12 : 1) : 0;
     this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
     // recordings: a little table under a floating lantern (never on a headset)
     {
@@ -811,11 +812,6 @@ export class App {
     if (view.scene === 'menu') for (const i of view.icons) if (i.visible > 0.05) box(i.s - i.r, i.s + i.r, i.t - i.r, i.t + i.r);
     const g = view.ghost;
     if (g.visible > 0.08) box(g.s - 0.24 * g.scale, g.s + 0.24 * g.scale, g.t - 0.3 * g.scale, g.t + 0.26 * g.scale);
-    const mv = view.moon;
-    if (mv.visible > 0.2) {
-      const mr = mv.r * (view.courageRing > 0.05 ? 2.4 : 1.6);
-      box(mv.s - mr, mv.s + mr, mv.t - mr, mv.t + mr);
-    }
     const hw = this.banner.contentW / 2 + 0.015;
     const hh = this.banner.contentH / 2 + 0.015;
     let best = -1;

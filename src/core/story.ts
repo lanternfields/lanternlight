@@ -542,13 +542,13 @@ export class Story {
         this.view.burrow.visible = 1;
         this.view.burrow.s = -0.47;
         this.view.burrow.t = GROUND_T;
-        this.view.moon.s = -0.42;
-        this.view.moon.t = 0.27;
+        this.view.moon.s = -0.44;
+        this.view.moon.t = 0.17; // below the storyteller's band
         this.setBeat('moonrise');
         break;
       case 'finale':
         this.view.moon.s = 0.46;
-        this.view.moon.t = 0.3;
+        this.view.moon.t = 0.18;
         this.rabbit.place(-0.5, GROUND_T, 1);
         this.rabbit.restTime = 0.5;
         this.wolf.state = 'howl';

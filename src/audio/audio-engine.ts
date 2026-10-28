@@ -182,8 +182,8 @@ export class AudioEngine {
     const amb = this.ambience;
     this.bedClock += dt;
     const swell = 0.75 + 0.25 * Math.sin(this.bedClock * 0.35) * Math.sin(this.bedClock * 0.13 + 1);
-    this.waterGain.gain.setTargetAtTime(amb === 'croc' ? 0.05 * swell : amb === 'bridge' ? 0.025 * swell : 0, now, 0.8);
-    this.reedGain.gain.setTargetAtTime(amb === 'croc' ? 0.018 * swell : 0, now, 0.8);
+    this.waterGain.gain.setTargetAtTime(amb === 'croc' ? 0.028 * swell : amb === 'bridge' ? 0.016 * swell : 0, now, 0.8);
+    this.reedGain.gain.setTargetAtTime(amb === 'croc' ? 0.005 * swell : 0, now, 0.8);
     this.windGain.gain.setTargetAtTime(amb === 'bridge' ? 0.06 * swell : amb === 'wolf' ? 0.03 * swell : 0, now, 1.0);
     this.windFilter.frequency.setTargetAtTime(520 + 260 * Math.sin(this.bedClock * 0.21), now, 0.5);
     // the river: little plips and drips
