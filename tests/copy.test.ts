@@ -63,7 +63,9 @@ describe('copy: line breaks', () => {
       expect(text.split('\n').length, id).toBeLessThanOrEqual(2);
     }
     for (const [id, text] of prompts) {
-      if (text.length > 24) expect(text, id).toContain('\n');
+      // small caps: about 17 characters fit a row at full size (19 at a slight shrink)
+      if (text.length > 19) expect(text, id).toContain('\n');
+      for (const row of text.split('\n')) expect(row.length, `${id}: ${row}`).toBeLessThanOrEqual(19);
       expect(text.split('\n').length, id).toBeLessThanOrEqual(2);
     }
     for (const [id, text] of captions) expect(text.split('\n').length, id).toBeLessThanOrEqual(2);

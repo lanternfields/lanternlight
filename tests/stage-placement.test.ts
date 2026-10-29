@@ -318,3 +318,47 @@ describe('scene understanding in rooms nobody tested', () => {
     expect(chooseStage([offAngle, tooClose], eye, fwd).reason).toBe('wall-too-close');
   });
 });
+
+describe('placement review fixes', () => {
+  const eye = new V3(0, 1.2, 0);
+  it('a wall stage is never a sliver: it is at least 60% of the scroll in angular height', () => {
+    const rnd = mulberry32(11);
+    for (let k = 0; k < 400; k++) {
+      const D = 0.6 + rnd() * 3.9;
+      const a = ((rnd() - 0.5) * 120 * Math.PI) / 180;
+      const n = new V3(Math.sin(a), 0, Math.cos(a));
+      const c = new V3(-n.x * D, 0, -n.z * D);
+      const t = new V3(Math.cos(a), 0, -Math.sin(a));
+      const w = 0.6 + rnd() * 5;
+      const h = 0.8 + rnd() * 2;
+      const wall: PlaneInfo = {
+        id: 'w',
+        orientation: 'vertical',
+        label: 'wall',
+        normal: n,
+        points: [
+          new V3(c.x - t.x * w, 0.2, c.z - t.z * w),
+          new V3(c.x + t.x * w, 0.2, c.z + t.z * w),
+          new V3(c.x + t.x * w, 0.2 + h, c.z + t.z * w),
+          new V3(c.x - t.x * w, 0.2 + h, c.z - t.z * w),
+        ],
+      };
+      const p = chooseStage([wall], eye, fwd);
+      if (p.kind !== 'wall') continue;
+      const rel = new V3();
+      sub(rel, eye, p.frame.origin);
+      const dist = Math.hypot(rel.x, rel.y, rel.z);
+      const ang = (2 * Math.atan(p.frame.height / 2 / dist) * 180) / Math.PI;
+      expect(ang).toBeGreaterThan(0.6 * 2 * (DEFAULT_PLACEMENT.verticalHalfAngleDeg + 2) - 1);
+      // and its top never more than ~30 degrees above the eye
+      const top = p.frame.origin.y + p.frame.height / 2 - eye.y;
+      expect((Math.atan2(top, Math.hypot(rel.x, rel.z)) * 180) / Math.PI).toBeLessThan(31);
+    }
+  });
+
+  it('a coffee table beyond a seated arm (the menu tap) leaves the lantern floating', () => {
+    expect(chooseLantern([table('coffee', 0.35, -0.5, 0.5, -1.0, -0.6)], eye, fwd).onSurface).toBe(false);
+    // ...but a coffee table right at the knees is fine
+    expect(chooseLantern([table('coffee', 0.45, -0.5, 0.5, -0.55, -0.2)], eye, fwd).onSurface).toBe(true);
+  });
+});

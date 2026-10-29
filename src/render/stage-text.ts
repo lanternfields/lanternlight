@@ -139,13 +139,13 @@ export class StageText {
    * "\n"; nothing is re-wrapped here), and the font size that makes the
    * widest row fit `maxW` px (never larger than `fontPx`).
    */
-  private layout(text: string, fontPx: number, maxW: number, setFont: (px: number) => void): { rows: string[]; fontPx: number } {
+  private layout(text: string, fontPx: number, maxW: number, pitch: number, setFont: (px: number) => void): { rows: string[]; fontPx: number } {
     const rows = text.split('\n');
     setFont(fontPx);
     let widest = 0;
     for (const r of rows) widest = Math.max(widest, this.ctx.measureText(r).width);
     // fit the widest row, and the rows' height (canvas height ~ two rows)
-    const k = Math.min(1, maxW / Math.max(1, widest), (this.canvas.height * 0.92) / (rows.length * fontPx * 1.2));
+    const k = Math.min(1, maxW / Math.max(1, widest), (this.canvas.height * 0.98) / (rows.length * fontPx * pitch));
     if (k < 1) {
       fontPx *= k;
       setFont(fontPx);
@@ -157,7 +157,7 @@ export class StageText {
     const { ctx, canvas } = this;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const { rows, fontPx } = this.layout(text, this.px(this.spec.em), canvas.width * 0.8, (px) => {
+    const { rows, fontPx } = this.layout(text, this.px(this.spec.em), canvas.width * 0.8, 1.45, (px) => {
       ctx.font = `italic ${px}px ${FONT}`;
     });
     let tw = 0;
@@ -220,7 +220,7 @@ export class StageText {
     const { ctx, canvas } = this;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const { rows, fontPx } = this.layout(text, this.px(this.spec.em * 1.25), canvas.width * 0.94, (px) => {
+    const { rows, fontPx } = this.layout(text, this.px(this.spec.em * 1.25), canvas.width * 0.94, 1.02, (px) => {
       this.setSmallCaps(px);
       (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${Math.round(px * 0.06)}px`;
     });

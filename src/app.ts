@@ -171,6 +171,8 @@ export class App {
   /** A one-line notice under the stage ('' = none) and how long it stays (s). */
   private notice = '';
   private noticeTime = 0;
+  /** After room capture: re-placing waits (until this session time) for the new planes. */
+  private awaitScanUntil = -1;
   private saveTimer = 0;
   private readonly store = browserStore();
 
@@ -299,6 +301,7 @@ export class App {
     this.session.planesSeen = 0;
     this.roomCaptureAsked = false;
     this.noticeTime = 0;
+    this.awaitScanUntil = -1;
     this.session.meshesSeen = 0;
     this.hitWall = null;
     this.hitSource = undefined;
@@ -480,6 +483,7 @@ export class App {
   private maybeCaptureRoom(): void {
     if (this.roomCaptureAsked || this.session.mode !== 'ar' || this.capture) return;
     if (this.sessionTime < 3 || this.session.planesSeen > 0) return;
+    if (!this.session.features.includes('plane-detection')) return;
     const s = this.world.session as (XRSession & { initiateRoomCapture?: () => Promise<void> }) | undefined;
     if (!s || typeof s.initiateRoomCapture !== 'function') return;
     this.roomCaptureAsked = true;
@@ -487,11 +491,18 @@ export class App {
     this.noticeTime = 6;
     try {
       s.initiateRoomCapture().then(
-        () => this.requestReplace(),
-        () => undefined,
+        () => {
+          // back from room setup: place again once the new walls arrive (up to 8 s)
+          this.noticeTime = 0;
+          this.awaitScanUntil = this.sessionTime + 8;
+          this.requestReplace();
+        },
+        () => {
+          this.noticeTime = 0;
+        },
       );
     } catch {
-      /* not available here */
+      this.noticeTime = 0;
     }
   }
 
@@ -765,7 +776,8 @@ export class App {
     this.occluder.update(occlude, this.hands, this.head);
     if (occlude !== this.occluding) {
       this.occluding = occlude;
-      for (const t of [this.banner, this.promptText, this.titleText]) {
+      // (the prompt sits low, right where a raised hand is: it stays drawn on top)
+      for (const t of [this.banner, this.titleText]) {
         (t.mesh.material as ShaderMaterial).depthTest = occlude;
         (t.mesh.material as ShaderMaterial).needsUpdate = true;
       }
@@ -1178,6 +1190,8 @@ export class App {
   /** True when the head has been steady (< 12 deg/s) for 0.7 s, or after 6 s. */
   private readyToReplace(dt: number): boolean {
     if (this.menu.open) return false;
+    // just back from room capture: wait for its planes to arrive
+    if (this.planes.length === 0 && this.sessionTime < this.awaitScanUntil) return false;
     this.replaceWait += dt;
     const f = this.headForward;
     const l = this.lastForward;
@@ -1228,7 +1242,7 @@ export class App {
       lantern: this.lanternPlacement
         ? {
             onSurface: this.lanternPlacement.onSurface,
-            surfacesInReach: surfacesInReach(this.planes, this.head),
+            surfacesInReach: surfacesInReach(this.planes, this.head, this.headForward, this.settings.dominant),
             position: [this.lanternPlacement.position.x, this.lanternPlacement.position.y, this.lanternPlacement.position.z].map((v) => +v.toFixed(3)),
           }
         : null,

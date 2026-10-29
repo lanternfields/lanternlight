@@ -456,6 +456,10 @@ export class Story {
   private waitTime = 0;
   /** Pip has stepped onto your hand this crossing (the stall prompt stays away). */
   private bridgeHelped = false;
+  /** Seconds Pip has been stuck waiting this crossing (drives the plank assist). */
+  private plankWait = 0;
+  /** Seconds since Pip was last on your hand's shadow. */
+  private offHand = 0;
   private readonly plank = { active: false, t: 0, done: false, index: 0 };
   private homeFromX = 0;
   private homeFromY = 0;
@@ -762,6 +766,8 @@ export class Story {
     this.view.burrow.t = GROUND_T;
     this.peerTime = 0;
     this.waitTime = 0;
+    this.plankWait = 0;
+    this.offHand = 0;
     this.bridgeHelped = false;
     this.plank.active = false;
     this.plank.done = false;
@@ -1382,8 +1388,17 @@ export class Story {
       if (r.onShadow) {
         this.bridgeHelped = true;
         this.waitTime = 0;
+        this.offHand = 0;
+      } else this.offHand += dt;
+      // ...until the hand has gone (Pip off it for a while, or fallen in): then
+      // help is needed again (a quick hop between shadow and bank doesn't count)
+      if (r.state === 'fall' || r.state === 'swim' || r.state === 'climb' || (this.offHand > 1.5 && r.state === 'idle')) {
+        this.bridgeHelped = false;
       }
-      const needHelp = !this.bridgeHelped && this.peerTime > (this.settings.gentle ? 1.5 : 2.5);
+      const waiting = this.peerTime > (this.settings.gentle ? 1.5 : 2.5);
+      const needHelp = !this.bridgeHelped && waiting;
+      // the plank's clock runs whenever Pip is stuck waiting, prompt or not
+      if (waiting) this.plankWait += dt;
       const g = this.rounds[Math.min(this.round, this.rounds.length - 1)];
       v.ghost.pose = 'bridge';
       v.ghost.s = 0;
@@ -1394,7 +1409,7 @@ export class Story {
       v.ghost.visible = approach(v.ghost.visible, needHelp ? 0.45 : 0, 2.5, dt);
       if (needHelp) this.waitTime += dt;
       this.ask(needHelp && this.waitTime > PROMPT_WORDS_AFTER - 2.5 ? (this.round === 2 ? COPY.CLOSER : COPY.BRIDGE) : null);
-      if (!this.plank.active && !this.plank.done && this.waitTime > (this.settings.gentle ? 9 : 16)) {
+      if (!this.plank.active && !this.plank.done && this.plankWait > (this.settings.gentle ? 9 : 16)) {
         this.plank.active = true;
         this.plank.t = 0;
         this.plank.index = this.world.sceneryCount;

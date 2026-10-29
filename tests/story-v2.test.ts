@@ -345,3 +345,34 @@ describe('story v2: the bridge prompt never fires during success (judge)', () =>
     expect(promptedAfter).toBe(0);
   });
 });
+
+describe('story v2: the bridge never soft-locks (review)', () => {
+  it('if the hand goes away after Pip stepped on, the hint comes back and the plank still drops', () => {
+    // (Pip is left standing at the edge of the bank: stuck, so help is needed again)
+    const model = new ShadowModel();
+    const story = new Story();
+    story.enter('bridge');
+    run(story, model, 4, () => hide(model)); // the title card, Pip walks to the edge
+    let stepped = false;
+    let hintAfterFall = false;
+    for (let i = 0; i < 72 * 45 && story.scene === 'bridge' && story.beat === 'cross'; i++) {
+      if (!stepped) {
+        // a short hand Pip can step onto, then the player takes it away
+        const a = setHand(model, 0, GROUND_T - 0.025, 'open');
+        model.capsules[0].ax = -0.36;
+        model.capsules[0].bx = 0.0;
+        model.capsules[0].r = 0.025;
+        a.minS = -0.4;
+        a.maxS = 0.05;
+        if (story.rabbit.onShadow) stepped = true;
+      } else hide(model);
+      story.update(1 / 72, model);
+      if (stepped && story.view.ghost.visible > 0.2) hintAfterFall = true;
+    }
+    expect(stepped).toBe(true);
+    expect(hintAfterFall).toBe(true);
+    // the plank assist dropped and Pip got across
+    expect(story.stats.assists).toBeGreaterThan(0);
+    expect(story.stats.crossings).toBe(1);
+  });
+});

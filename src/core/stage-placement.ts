@@ -278,7 +278,13 @@ export function chooseStage(
     addScaled(hit, hit, fwd, D / facing);
     cross(right, up, n);
     normalize(right, right);
-    let H = stageHeightForDistance(D, opts.verticalHalfAngleDeg) * opts.sizeScale;
+    // sized for the distance it is seen at (along the gaze), not the perpendicular one
+    const L = D / facing;
+    if (L > opts.maxDistance) {
+      reject('wall-too-far');
+      continue;
+    }
+    let H = stageHeightForDistance(L, opts.verticalHalfAngleDeg) * opts.sizeScale;
     let W = H * opts.aspect;
     const wall = extentsOnFrame(plane.points, hit, right, up);
     const margin = 0.06;
@@ -311,7 +317,7 @@ export function chooseStage(
     // Preferred centre: gaze point, slightly below eye level (or just above
     // the furniture line), but never uncomfortably high.
     const prefU = Math.max(-0.1, floorU + H / 2);
-    if (prefU > Math.tan((26 * Math.PI) / 180) * D) {
+    if (prefU > Math.tan((26 * Math.PI) / 180) * L) {
       reject('wall-occluded');
       continue;
     }
@@ -367,8 +373,8 @@ export function chooseStage(
         for (const du of [0, 0.12, 0.24, -0.1]) {
           const r = clamp(dr, rMin, rMax);
           const u = clamp(pu + du, uMin, uMax);
-          // never uncomfortably high
-          if (u > Math.tan((26 * Math.PI) / 180) * D) continue;
+          // never uncomfortably high: the stage's top at most 30 degrees above the eye
+          if (u + h / 2 > Math.tan((30 * Math.PI) / 180) * L) continue;
           const rect: Rect = { r0: r - w / 2, r1: r + w / 2, u0: u - h / 2, u1: u + h / 2 };
           let hidden = 0;
           for (const o of furnitureRects) hidden += overlapArea(rect, o);
@@ -407,6 +413,12 @@ export function chooseStage(
     }
     H *= localBest.k;
     W *= localBest.k;
+    // shrunk too far (a small wall, furniture, a busy wall, all at once)? The
+    // paper scroll is the better stage than a sliver.
+    if (2 * Math.atan(H / 2 / L) < 0.6 * 2 * (((opts.verticalHalfAngleDeg + 2) * Math.PI) / 180)) {
+      reject('wall-too-small');
+      continue;
+    }
     if (!best || localBest.score > best.score) {
       const frame = createStageFrame();
       frame.origin.copy(hit);
@@ -534,19 +546,13 @@ function pointInPolygonXZ(x: number, z: number, pts: readonly V3[]): boolean {
 }
 
 /**
- * How many table-height surfaces come within reach of a seated viewer
+ * How many table-height surfaces offer the lantern a spot within reach
  * (diagnostics: the room sweep checks the lantern uses one when there is one).
  */
-export function surfacesInReach(planes: readonly PlaneInfo[], head: Readonly<V3>): number {
+export function surfacesInReach(planes: readonly PlaneInfo[], head: Readonly<V3>, forward: Readonly<V3>, handedness: 'left' | 'right' = 'right'): number {
+  const frame = lanternFrame(head, forward, handedness);
   let n = 0;
-  for (const p of planes) {
-    if (p.orientation === 'vertical' || p.normal.y < 0.85 || p.points.length < 3) continue;
-    if (!SURFACE_LABELS.has(normalizeLabel(p.label))) continue;
-    const y = p.points.reduce((acc, q) => acc + q.y, 0) / p.points.length;
-    if (y < head.y - 0.95 || y > head.y - 0.22) continue;
-    const d = pointInPolygonXZ(head.x, head.z, p.points) ? 0 : edgeDistanceXZ(head.x, head.z, p.points);
-    if (d <= LANTERN_REACH - LANTERN_INSET) n++;
-  }
+  for (const p of planes) if (lanternSpotOn(p, head, frame)) n++;
   return n;
 }
 
@@ -567,22 +573,22 @@ function edgeDistanceXZ(x: number, z: number, pts: readonly V3[]): number {
 
 /** How far the lantern may sit from the head (horizontally): an easy reach, seated. */
 export const LANTERN_REACH = 0.9;
+/** ...and from the chest (3D, to the flame): the fingertip tap that opens the menu stays in reach. */
+export const LANTERN_ARM = 0.72;
 /** Kept this far in from a table's edge (m). */
 export const LANTERN_INSET = 0.07;
 
-/**
- * Lantern: on a real table, desk or other surface at seated table height within
- * reach, else gently floating. Every such surface is searched: the spot is the
- * point inside it (inset from the edge) closest to the ideal place, which is
- * 30 cm ahead and 20 cm to the non-dominant side, below and beside the hands,
- * so the performing hand never brushes it.
- */
-export function chooseLantern(
-  planes: readonly PlaneInfo[],
-  head: Readonly<V3>,
-  forward: Readonly<V3>,
-  handedness: 'left' | 'right' = 'right',
-): LanternPlacement {
+interface LanternFrame {
+  fwd: V3;
+  right: V3;
+  /** +1 / -1: the non-dominant side. */
+  side: number;
+  target: V3;
+  chest: V3;
+  floatY: number;
+}
+
+function lanternFrame(head: Readonly<V3>, forward: Readonly<V3>, handedness: 'left' | 'right'): LanternFrame {
   const fwd = horizontalForward(forward);
   const right = new V3();
   cross(right, fwd, new V3(0, 1, 0));
@@ -591,52 +597,80 @@ export function chooseLantern(
   const target = new V3().copy(head);
   addScaled(target, target, fwd, 0.3);
   addScaled(target, target, right, 0.2 * side);
-  const floatY = head.y - 0.45;
-  let best: { cost: number; x: number; y: number; z: number; id: string } | null = null;
+  const chest = new V3(head.x, head.y - 0.25, head.z);
+  return { fwd, right, side, target, chest, floatY: head.y - 0.45 };
+}
+
+/**
+ * The best spot for the lantern on one surface, or null: inside it (kept in
+ * from the edge), in front of the viewer, within reach, closest to the ideal
+ * place (30 cm ahead, 20 cm to the non-dominant side), out of the hand's lane.
+ */
+function lanternSpotOn(p: PlaneInfo, head: Readonly<V3>, f: LanternFrame): { cost: number; x: number; y: number; z: number } | null {
+  if (p.orientation === 'vertical' || p.normal.y < 0.85 || p.points.length < 3) return null;
+  if (!SURFACE_LABELS.has(normalizeLabel(p.label))) return null;
+  const y = p.points.reduce((acc, q) => acc + q.y, 0) / p.points.length;
+  // seated table height: from a low side table to a high desk
+  if (y < head.y - 0.95 || y > head.y - 0.22) return null;
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let z0 = Infinity;
+  let z1 = -Infinity;
+  for (const q of p.points) {
+    x0 = Math.min(x0, q.x);
+    x1 = Math.max(x1, q.x);
+    z0 = Math.min(z0, q.z);
+    z1 = Math.max(z1, q.z);
+  }
+  // only the part of the surface within reach
+  x0 = Math.max(x0, head.x - LANTERN_REACH);
+  x1 = Math.min(x1, head.x + LANTERN_REACH);
+  z0 = Math.max(z0, head.z - LANTERN_REACH);
+  z1 = Math.min(z1, head.z + LANTERN_REACH);
   const STEP = 0.04;
-  for (const p of planes) {
-    if (p.orientation === 'vertical' || p.normal.y < 0.85 || p.points.length < 3) continue;
-    if (!SURFACE_LABELS.has(normalizeLabel(p.label))) continue;
-    const y = p.points.reduce((acc, q) => acc + q.y, 0) / p.points.length;
-    // seated table height: from a low side table to a high desk
-    if (y < head.y - 0.95 || y > head.y - 0.22) continue;
-    let x0 = Infinity;
-    let x1 = -Infinity;
-    let z0 = Infinity;
-    let z1 = -Infinity;
-    for (const q of p.points) {
-      x0 = Math.min(x0, q.x);
-      x1 = Math.max(x1, q.x);
-      z0 = Math.min(z0, q.z);
-      z1 = Math.max(z1, q.z);
-    }
-    // only the part of the surface within reach
-    x0 = Math.max(x0, head.x - LANTERN_REACH);
-    x1 = Math.min(x1, head.x + LANTERN_REACH);
-    z0 = Math.max(z0, head.z - LANTERN_REACH);
-    z1 = Math.min(z1, head.z + LANTERN_REACH);
-    for (let x = x0; x <= x1 + 1e-9; x += STEP) {
-      for (let z = z0; z <= z1 + 1e-9; z += STEP) {
-        const rx = x - head.x;
-        const rz = z - head.z;
-        if (rx * rx + rz * rz > LANTERN_REACH * LANTERN_REACH) continue;
-        const ahead = rx * fwd.x + rz * fwd.z;
-        // in front of the viewer, not under their chin
-        if (ahead < 0.15) continue;
-        if (!pointInPolygonXZ(x, z, p.points)) continue;
-        if (edgeDistanceXZ(x, z, p.points) < LANTERN_INSET) continue;
-        const lateral = rx * right.x + rz * right.z;
-        // closest to the ideal spot; out of the hand's lane straight ahead;
-        // the non-dominant side preferred; a table near seated height preferred
-        const cost =
-          Math.hypot(x - target.x, z - target.z) +
-          1.5 * Math.max(0, 0.12 - Math.abs(lateral)) +
-          (lateral * side < 0 ? 0.15 : 0) +
-          0.3 * Math.abs(y - floatY);
-        if (!best || cost < best.cost) best = { cost, x, y, z, id: p.id };
-      }
+  const flameY = y + 0.12;
+  let best: { cost: number; x: number; y: number; z: number } | null = null;
+  for (let x = x0; x <= x1 + 1e-9; x += STEP) {
+    for (let z = z0; z <= z1 + 1e-9; z += STEP) {
+      const rx = x - head.x;
+      const rz = z - head.z;
+      if (rx * rx + rz * rz > LANTERN_REACH * LANTERN_REACH) continue;
+      // within a seated arm's reach of the chest (the tap that opens the menu)
+      if (Math.hypot(x - f.chest.x, flameY - f.chest.y, z - f.chest.z) > LANTERN_ARM) continue;
+      const ahead = rx * f.fwd.x + rz * f.fwd.z;
+      // in front of the viewer, not under their chin
+      if (ahead < 0.15) continue;
+      if (!pointInPolygonXZ(x, z, p.points)) continue;
+      if (edgeDistanceXZ(x, z, p.points) < LANTERN_INSET) continue;
+      const lateral = rx * f.right.x + rz * f.right.z;
+      const cost =
+        Math.hypot(x - f.target.x, z - f.target.z) +
+        1.5 * Math.max(0, 0.12 - Math.abs(lateral)) +
+        (lateral * f.side < 0 ? 0.15 : 0) +
+        0.3 * Math.abs(y - f.floatY);
+      if (!best || cost < best.cost) best = { cost, x, y, z };
     }
   }
+  return best;
+}
+
+/**
+ * Lantern: on a real table, desk or other surface at seated table height within
+ * reach, else gently floating. Every such surface is searched (lanternSpotOn),
+ * and the best spot over all of them wins.
+ */
+export function chooseLantern(
+  planes: readonly PlaneInfo[],
+  head: Readonly<V3>,
+  forward: Readonly<V3>,
+  handedness: 'left' | 'right' = 'right',
+): LanternPlacement {
+  const f = lanternFrame(head, forward, handedness);
+  let best: { cost: number; x: number; y: number; z: number; id: string } | null = null;
+  for (const p of planes) {
+    const spot = lanternSpotOn(p, head, f);
+    if (spot && (!best || spot.cost < best.cost)) best = { ...spot, id: p.id };
+  }
   if (best) return { position: new V3(best.x, best.y, best.z), onSurface: true, planeId: best.id };
-  return { position: new V3(target.x, floatY, target.z), onSurface: false, planeId: null };
+  return { position: new V3(f.target.x, f.floatY, f.target.z), onSurface: false, planeId: null };
 }
