@@ -172,6 +172,7 @@ describe('story v2: tale III (the moon behind Pip; time for the song)', () => {
     let t = 0;
     let twistAt = -1;
     let endAt = -1;
+    let wolfInAt = -1;
     let brightened = 0;
     for (let i = 0; i < 72 * 120 && story.scene === 'wolf'; i++) {
       t = i / 72;
@@ -183,6 +184,7 @@ describe('story v2: tale III (the moon behind Pip; time for the song)', () => {
       spacing.check(story);
       brightened = Math.max(brightened, story.view.brighten);
       if (twistAt < 0 && story.view.text.line === COPY.III3) twistAt = t;
+      if (wolfInAt < 0 && story.wolf.state !== 'away') wolfInAt = t;
       if (endAt < 0 && story.beat === 'end') endAt = t;
       // the moon sits right behind Pip
       if (story.view.moon.visible > 0.5) expect(Math.abs(story.view.moon.s - story.rabbit.x)).toBeLessThan(0.06);
@@ -190,7 +192,10 @@ describe('story v2: tale III (the moon behind Pip; time for the song)', () => {
     expect(story.progress.completed.wolf).toBe(true);
     expect(spacing.worst, spacing.where).toBeGreaterThanOrEqual(0);
     expect(brightened).toBeGreaterThan(0.5);
-    for (const id of ['III1', 'III2', 'III3', 'III4', 'III5'] as const) expect(lines.seen, id).toContain(COPY[id]);
+    for (const id of ['III1a', 'III1b', 'III2', 'III3', 'III4', 'III5'] as const) expect(lines.seen, id).toContain(COPY[id]);
+    // III1 in order, as two consecutive beats; the wolf comes in on the second
+    expect(lines.seen.indexOf(COPY.III1b)).toBe(lines.seen.indexOf(COPY.III1a) + 1);
+    expect(wolfInAt).toBeGreaterThanOrEqual(lines.shownAt[lines.seen.indexOf(COPY.III1b)]);
     expect(endAt - twistAt).toBeGreaterThan(8);
     expect(lines.cutMidLine).toBe(0);
   });

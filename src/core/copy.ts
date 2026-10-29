@@ -33,7 +33,9 @@ export interface Copy {
   II3: string;
   II4: string;
   II5: string;
-  III1: string;
+  /** III1, said as two consecutive ribbon beats (the same words, in order). */
+  III1a: string;
+  III1b: string;
   III2: string;
   III3: string;
   III4: string;
@@ -82,7 +84,8 @@ export const COPY: Copy = {
   II3: 'The river lends a hand.\nWell, a plank.',
   II4: 'Pip crosses on tiptoe,\nin case hands are ticklish.',
   II5: 'Pip will tell everyone about\nthe hand that held still.',
-  III1: 'The moon is up. Something is moving\nin the tall grass…',
+  III1a: 'The moon is up.',
+  III1b: 'Something is moving\nin the tall grass…',
   III2: 'Pip tries very hard\nto be small.',
   III3: 'But the wolf is only here\nto sing to the moon.',
   III4: 'The scariest shadow\non the hill is yours.',

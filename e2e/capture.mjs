@@ -361,8 +361,9 @@ await browser.close();
     r.shots = [...r.shots];
     for (const k of ['start', 'full', 'leave', 'end']) r[k] = +(+r[k]).toFixed(2);
   }
-  const ok = runs.every((r) => r.full >= 0 && r.dips === 0 && r.story === 0);
-  fs.writeFileSync(path.join(OUT, `${name}.legibility.json`), JSON.stringify({ ok, rule: 'each line reaches full opacity, never dips while held, and no story character or the moon lies under it', lines: runs }, null, 2));
+  // (a short beat such as III1a, "The moon is up.", holds ~1.5 s; every other line ~3.2 s)
+  const ok = runs.every((r) => r.full >= 0 && r.dips === 0 && r.story === 0 && r.held >= 1.4);
+  fs.writeFileSync(path.join(OUT, `${name}.legibility.json`), JSON.stringify({ ok, rule: 'each line reaches full opacity, is held at least 1.4 s, never dips while held, and no story character or the moon lies under it', lines: runs }, null, 2));
   console.log('LEGIBILITY', ok ? 'OK' : 'FAIL', runs.length, 'lines', runs.filter((r) => r.dips || r.story).map((r) => r.line).join(' | '));
 }
 fs.writeFileSync(path.join(OUT, `${name}.marks.json`), JSON.stringify({ fps: FPS, landingSeconds: 1.5, marks }, null, 2));

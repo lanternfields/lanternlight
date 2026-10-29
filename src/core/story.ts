@@ -489,7 +489,7 @@ export class Story {
   }
 
   // ---------------------------------------------------------- narration
-  private readonly lineQueue: { text: string; hold: boolean }[] = [];
+  private readonly lineQueue: { text: string; hold: boolean; dur: number }[] = [];
   private lineT = 0;
   private lineDur = 3.5;
   private lineHold = false;
@@ -500,9 +500,9 @@ export class Story {
    * Queues a storyteller line (one at a time; `hold` keeps it up until the
    * scene changes). An empty line (a beat the script leaves silent) is skipped.
    */
-  say(text: string, hold = false): void {
+  say(text: string, hold = false, dur = 0): void {
     if (!text) return;
-    this.lineQueue.push({ text, hold });
+    this.lineQueue.push({ text, hold, dur });
   }
 
   /**
@@ -539,7 +539,7 @@ export class Story {
       tv.lineAlpha = 0;
       this.lineT = 0;
       this.lineHold = next.hold;
-      this.lineDur = lineDuration(next.text);
+      this.lineDur = next.dur > 0 ? next.dur : lineDuration(next.text);
     }
     // prompts: cross-fade when the words change, dissolve when no longer asked
     const want = this.promptWant;
@@ -857,7 +857,12 @@ export class Story {
       } else if (this.scene === 'bridge') {
         this.say(COPY.II1);
         this.say(COPY.II2);
-      } else if (this.scene === 'wolf') this.say(COPY.III1);
+      } else if (this.scene === 'wolf') {
+        // III1 as two beats: the moon first (a short beat), then the stirring
+        // in the grass, which is when the wolf comes in
+        this.say(COPY.III1a, false, Story.III1A_HOLD);
+        this.say(COPY.III1b);
+      }
     }
     switch (this.scene) {
       case 'intro':
@@ -1483,6 +1488,8 @@ export class Story {
   static readonly WOLF_SCALE = 1.3;
   static readonly WOLF_RABBIT_SCALE = 1.0;
   static readonly WOLF_PIP_X = -0.42;
+  /** III1a ("The moon is up.") is a short beat before the wolf's. */
+  static readonly III1A_HOLD = 1.8;
   /** Moonrise: from below Pip's feet to right behind Pip's head. */
   static readonly MOON_LOW = -0.42;
   static readonly MOON_UP = -0.1;
@@ -1533,7 +1540,8 @@ export class Story {
     v.brighten = approach(v.brighten, this.beat === 'scare' && stalking ? clamp01((v.courage - 0.55) / 0.45) : 0, 3, dt);
     switch (this.beat) {
       case 'moonrise':
-        if (this.beatTime > 1.2) {
+        // the wolf comes in on the second beat ("Something is moving...")
+        if ((v.text.line === COPY.III1b && v.text.lineAlpha > 0.3) || this.beatTime > 6) {
           w.enter(0.78, 0.1);
           this.setBeat('scare');
         }

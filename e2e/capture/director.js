@@ -599,12 +599,10 @@
     rest();
     setPose('relaxed', 0.4);
     yield* until(() => !S().view.title.id, 5);
-    // the opening lines read first (III1, then III2 as the wolf comes in); then
-    // the hand comes up, so the giant never grows under the storyteller's ribbon
+    // the opening lines read first (III1 in two beats, then III2 as the wolf
+    // comes in); then the hand comes up, so the giant never grows under the ribbon
     yield* until(() => !!S().view.text.line, 2);
-    yield* until(() => !S().view.text.line, 6);
-    yield* until(() => !!S().view.text.line, 4);
-    yield* until(() => !S().view.text.line, 7);
+    yield* until(() => S().wolf.state !== 'away' && S().wolf.x < 0.6 && !S().view.text.line && S().lineQueue.length === 0, 16);
     setPose('open', 0.6);
     orient(60, 0, 0);
     ctl.tau = 0.4;
