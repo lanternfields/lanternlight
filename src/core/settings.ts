@@ -23,6 +23,8 @@ export interface Settings {
   volume: number;
   /** Dominant hand. */
   dominant: 'left' | 'right';
+  /** Mixed reality: draw the real hands in front of the stage (hand occlusion). */
+  occluder: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -35,7 +37,22 @@ export const DEFAULT_SETTINGS: Settings = {
   fullCaptions: false,
   volume: 0.8,
   dominant: 'right',
+  occluder: true,
 };
+
+/**
+ * Whether the hand occluder is on: the `occluder` URL parameter wins
+ * (`?occluder=0` turns it off for a tester whose hand looks cut off), else the
+ * saved setting.
+ */
+export function occluderEnabled(search: string, setting: boolean): boolean {
+  const v = new URLSearchParams(search).get('occluder');
+  if (v === null) return setting;
+  const s = v.trim().toLowerCase();
+  if (s === '0' || s === 'off' || s === 'false' || s === 'no') return false;
+  if (s === '1' || s === 'on' || s === 'true' || s === 'yes' || s === '') return true;
+  return setting;
+}
 
 export interface KeyValueStore {
   getItem(key: string): string | null;
@@ -64,6 +81,7 @@ export function loadSettings(store?: KeyValueStore | null): Settings {
     if (typeof parsed.reduceMotion === 'boolean') out.reduceMotion = parsed.reduceMotion;
     if (typeof parsed.captions === 'boolean') out.captions = parsed.captions;
     if (typeof parsed.fullCaptions === 'boolean') out.fullCaptions = parsed.fullCaptions;
+    if (typeof parsed.occluder === 'boolean') out.occluder = parsed.occluder;
     if (typeof parsed.volume === 'number') out.volume = Math.min(1, Math.max(0, parsed.volume));
     if (parsed.dominant === 'left' || parsed.dominant === 'right') out.dominant = parsed.dominant;
   } catch {

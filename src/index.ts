@@ -37,7 +37,7 @@ World.create($('scene-container') as HTMLDivElement, projectOptions)
 async function start(world: World): Promise<void> {
   const params = new URLSearchParams(location.search);
   const tester = params.has('tester');
-  const app = new App(world, { tester, capture: params.has('capture') });
+  const app = new App(world, { tester, capture: params.has('capture'), search: location.search });
   $('build').textContent = BUILD + (tester ? ' · tester mode' : '');
   bindApp(app);
   world
@@ -58,6 +58,7 @@ async function start(world: World): Promise<void> {
   $<HTMLInputElement>('opt-contrast').checked = s.highContrast;
   $<HTMLInputElement>('opt-dim').value = String(Math.round(s.dimLevel * 100));
   $<HTMLInputElement>('opt-left').checked = s.dominant === 'left';
+  $<HTMLInputElement>('opt-occluder').checked = s.occluder;
   $('opts').addEventListener('change', () => {
     app.updateSettings({
       gentle: $<HTMLInputElement>('opt-gentle').checked,
@@ -67,6 +68,7 @@ async function start(world: World): Promise<void> {
       highContrast: $<HTMLInputElement>('opt-contrast').checked,
       dimLevel: Number($<HTMLInputElement>('opt-dim').value) / 100,
       dominant: $<HTMLInputElement>('opt-left').checked ? 'left' : 'right',
+      occluder: $<HTMLInputElement>('opt-occluder').checked,
     });
   });
 

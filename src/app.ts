@@ -14,7 +14,7 @@ import { HandFrame, JOINT_COUNT, createHandFrame } from './core/hand-model.js';
 import { V3 } from './core/math.js';
 import { AdaptiveQuality, FrameStats, QUALITY_LEVELS } from './core/perf.js';
 import { computeFocalLight, createProjected, nominalHandPoint, projectToStage, stageToWorld, StageFrame } from './core/projection.js';
-import { browserStore, loadProgress, loadSettings, saveProgress, saveSettings, Settings } from './core/settings.js';
+import { browserStore, loadProgress, loadSettings, occluderEnabled, saveProgress, saveSettings, Settings } from './core/settings.js';
 import { RodInput, ShadowModel, createRodInput } from './core/shadow-model.js';
 import {
   LanternPlacement,
@@ -116,6 +116,8 @@ export class App {
   readonly standIns = new HandStandIns();
   /** Mixed reality: the real hands' depth, so no virtual layer paints over them. */
   private readonly occluder = new HandOccluder();
+  /** The page's query string (`?occluder=0` turns the occluder off). */
+  private readonly occluderQuery: string;
   private occluding = false;
   readonly props = new CaptureProps();
   private readonly tmpBase = new Vector3();
@@ -195,9 +197,10 @@ export class App {
     this.headLocked = true;
   }
 
-  constructor(readonly world: World, opts: { tester?: boolean; capture?: boolean } = {}) {
+  constructor(readonly world: World, opts: { tester?: boolean; capture?: boolean; search?: string } = {}) {
     this.tester = !!opts.tester;
     this.capture = !!opts.capture;
+    this.occluderQuery = opts.search ?? '';
     this.menu = new LanternMenu(this.tester);
     this.hud.enabled = this.tester;
     this.settings = loadSettings(this.store);
@@ -772,7 +775,7 @@ export class App {
     this.standIns.material.uniforms.uFade.value = this.capture && this.emulated ? this.standInFade : 1;
     this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
     // passthrough: the real hands occlude the stage, the captions and the lantern
-    const occlude = this.session.mode === 'ar' && !this.emulated;
+    const occlude = this.session.mode === 'ar' && !this.emulated && occluderEnabled(this.occluderQuery, this.settings.occluder);
     this.occluder.update(occlude, this.hands, this.head);
     if (occlude !== this.occluding) {
       this.occluding = occlude;

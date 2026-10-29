@@ -5,6 +5,7 @@ import {
   KeyValueStore,
   loadProgress,
   loadSettings,
+  occluderEnabled,
   saveProgress,
   saveSettings,
 } from '../src/core/settings.js';
@@ -155,5 +156,25 @@ describe('settings & progress persistence', () => {
     expect(q.completed.bridge).toBe(false);
     expect(q.discovered).toEqual(['rabbit']);
     expect(q.visits).toBe(3);
+  });
+});
+
+describe('hand occluder switch', () => {
+  it('is on by default and remembered when turned off in Settings', () => {
+    expect(DEFAULT_SETTINGS.occluder).toBe(true);
+    const store = new MemStore();
+    expect(loadSettings(store).occluder).toBe(true);
+    saveSettings({ ...DEFAULT_SETTINGS, occluder: false }, store);
+    expect(loadSettings(store).occluder).toBe(false);
+  });
+
+  it('?occluder=0 turns it off whatever the setting; ?occluder=1 turns it on; no parameter keeps the setting', () => {
+    expect(occluderEnabled('?occluder=0', true)).toBe(false);
+    expect(occluderEnabled('?tester=1&occluder=0', true)).toBe(false);
+    expect(occluderEnabled('?occluder=off', true)).toBe(false);
+    expect(occluderEnabled('?occluder=1', false)).toBe(true);
+    expect(occluderEnabled('', true)).toBe(true);
+    expect(occluderEnabled('?tester=1', false)).toBe(false);
+    expect(occluderEnabled('?occluder=maybe', true)).toBe(true);
   });
 });
