@@ -3,6 +3,8 @@ import { V3, mulberry32, dot, sub } from '../src/core/math.js';
 import {
   DEFAULT_PLACEMENT,
   MIN_STAGE_FRACTION,
+  MAX_SIDE_DEG,
+  TURN_NUDGE_DEG,
   PlaneInfo,
   chooseLantern,
   chooseStage,
@@ -232,7 +234,7 @@ describe('furniture occlusion', () => {
     expect(bottom).toBeGreaterThan(0.76);
   });
 
-  it('a monitor on the desk raises the stage further (or falls back)', () => {
+  it('a monitor on the desk: the stage goes above it or beside it, never behind it (or falls back)', () => {
     const wall = wallZ('w', -1.1, -2, 2, 0, 2.6);
     const desk = table('d', 0.76, -0.8, 0.8, -1.1, -0.45, 'table');
     const monitor = { label: 'SCREEN', min: new V3(-0.35, 0.76, -1.0), max: new V3(0.35, 1.18, -0.92) };
@@ -241,7 +243,11 @@ describe('furniture occlusion', () => {
       const bottom = p.frame.origin.y - p.frame.height / 2;
       // sight line over the monitor's top edge, extended to the wall
       const yLine = 1.2 + ((1.18 - 1.2) * 1.1) / 1.0;
-      expect(bottom).toBeGreaterThan(yLine);
+      // the monitor's sides, seen from the eye, on the wall
+      const xMon = (0.35 * 1.1) / 0.92;
+      const half = (p.frame.height * p.frame.aspect) / 2;
+      const beside = p.frame.origin.x - half >= xMon - 1e-3 || p.frame.origin.x + half <= -xMon + 1e-3;
+      expect(bottom > yLine || beside).toBe(true);
     } else {
       // the scroll must hang in front of the monitor, not inside it
       expect(p.distance).toBeLessThan(0.92 - 0.1);
@@ -403,5 +409,37 @@ describe('tables whose plane normal points down (the emulator gives them one)', 
     const desk = down(table('d', 0.95, -0.8, 0.8, -1.1, -0.45, 'table'));
     const p = chooseStage([wall, desk], new V3(0, 1.2, 0), fwd);
     if (p.kind === 'wall') expect(p.frame.origin.y - p.frame.height / 2).toBeGreaterThan(0.95);
+  });
+});
+
+// A usable wall a little off to the side (30-45 degrees): the stage goes there
+// and the viewer is nudged to turn; beyond 45 degrees the scroll.
+describe('a wall a little off to the side: a nudge to turn', () => {
+  const eye = new V3(0, 1.2, 0);
+  const wall = wallZ('w', -2, -3, 3, 0, 2.6);
+  it('straight ahead needs no turn', () => {
+    const p = chooseStage([wall], eye, fwd);
+    expect(p.kind).toBe('wall');
+    expect(p.turnDeg).toBe(0);
+  });
+  it('a window straight ahead, free wall to the right: the stage goes right and asks for a turn', () => {
+    const win = wallZ('win', -2, -3, 1.0, 0.3, 2.4, 'WINDOW_FRAME');
+    const p = chooseStage([wall, win], eye, fwd);
+    expect(p.kind).toBe('wall');
+    expect(p.turnDeg).toBeGreaterThan(TURN_NUDGE_DEG);
+    expect(p.turnDeg).toBeLessThanOrEqual(MAX_SIDE_DEG);
+    expect(p.frame.origin.x).toBeGreaterThan(1.0);
+  });
+  it('...and to the left, a negative turn', () => {
+    const win = wallZ('win', -2, -1.0, 3, 0.3, 2.4, 'WINDOW_FRAME');
+    const p = chooseStage([wall, win], eye, fwd);
+    expect(p.kind).toBe('wall');
+    expect(p.turnDeg).toBeLessThan(-TURN_NUDGE_DEG);
+  });
+  it('a free wall only beyond 45 degrees: the scroll, no nudge', () => {
+    const win = wallZ('win', -2, -3, 2.4, 0.3, 2.4, 'WINDOW_FRAME');
+    const p = chooseStage([wall, win], eye, fwd);
+    expect(p.kind).toBe('scroll');
+    expect(p.turnDeg).toBe(0);
   });
 });

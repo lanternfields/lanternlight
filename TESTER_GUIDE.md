@@ -18,7 +18,8 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 > 3. The tales are now called **The Hungry River**, **The Broken Bridge** and **The Moon Wolf**. Pip the rabbit watches the crocodile from the reeds, and the wolf is taller and thinner.
 > 4. In **The Moon Wolf** there is no ring around the moon any more: as your shadow grows, the wolf's ears flatten, Pip trembles and the light gets brighter.
 > 5. The crocodile's fireflies are bigger, and each one you catch keeps glowing in its throat.
-> 6. Your real hand should always show in front of the stage and the lantern. If your real hand ever looks cut off or has a hole around it, add `?occluder=0` to the link (or untick *Keep my real hand in front of the stage* under *Settings*) and tell us.
+> 6. If the best wall is a little to your side, the stage appears there and a small arrow in the lantern's light (and *Turn a little to your left/right*) asks you to turn your chair toward it.
+> 7. Your real hand should always show in front of the stage and the lantern. If your real hand ever looks cut off or has a hole around it, add `?occluder=0` to the link (or untick *Keep my real hand in front of the stage* under *Settings*) and tell us.
 
 ## Before you start (2 minutes)
 

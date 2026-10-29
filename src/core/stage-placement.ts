@@ -41,7 +41,18 @@ export interface StagePlacement {
   /** Why the scroll was chosen (for diagnostics / tests). */
   reason: string;
   score: number;
+  /**
+   * When the best usable wall is 30-45 degrees off to the side: how far
+   * (degrees; > 0 to the viewer's right, < 0 to the left). The stage is placed
+   * there and the viewer is nudged to turn a little. 0 = straight ahead enough.
+   */
+  turnDeg: number;
 }
+
+/** Off to the side beyond this, the viewer is nudged to turn (degrees). */
+export const TURN_NUDGE_DEG = 30;
+/** ...and beyond this the wall is too far round: the scroll instead. */
+export const MAX_SIDE_DEG = 45;
 
 export interface LanternPlacement {
   position: V3;
@@ -227,7 +238,7 @@ export function scrollPlacement(
   orientStage(frame, new V3(-fwd.x, 0, -fwd.z));
   frame.aspect = opts.aspect * 0.92;
   frame.height = stageHeightForDistance(d, opts.verticalHalfAngleDeg + 2) * opts.sizeScale;
-  return { kind: 'scroll', frame, distance: d, planeId: null, reason, score: 0 };
+  return { kind: 'scroll', frame, distance: d, planeId: null, reason, score: 0, turnDeg: 0 };
 }
 
 /** Chooses the stage. Never throws; always returns a usable placement. */
@@ -403,14 +414,17 @@ export function chooseStage(
       if (rMin > rMax + 1e-6) continue;
       anyPos = true;
       const pu = Math.max(-0.1, floorU + h / 2);
-      for (const dr of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8, -1.2, 1.2]) {
+      for (const dr of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8, -1.2, 1.2, -1.6, 1.6, -2.2, 2.2]) {
         for (const du of [0, 0.12, 0.24, -0.1]) {
           const r = clamp(dr, rMin, rMax);
-          // never too far off to the side of the gaze
-          if ((Math.atan2(Math.abs(r), D) * 180) / Math.PI > 30) {
+          // never too far off to the side of the gaze (a little beyond the
+          // comfortable cone, the viewer is nudged to turn: it costs a little)
+          const sideDeg = (Math.atan2(Math.abs(r), D) * 180) / Math.PI;
+          if (sideDeg > MAX_SIDE_DEG) {
             offAxisOnly = true;
             continue;
           }
+          const turnCost = sideDeg > TURN_NUDGE_DEG ? 0.8 : 0;
           const u = clamp(pu + du, uMin, uMax);
           // never uncomfortably high: the stage's top at most 30 degrees above the eye
           if (u + h / 2 > Math.tan((30 * Math.PI) / 180) * L) continue;
@@ -435,7 +449,8 @@ export function chooseStage(
             0.25 * soft +
             (label === 'wall' || label === 'wallface' ? 0.3 : 0) -
             0.4 * Math.abs(u - prefU) -
-            1.2 * (1 - k);
+            1.2 * (1 - k) -
+            turnCost;
           if (!localBest || score > localBest.score) localBest = { score, r, u, overlap, k };
         }
       }
@@ -468,13 +483,15 @@ export function chooseStage(
       orientStage(frame, n);
       frame.height = H;
       frame.aspect = W / H;
+      const sideDeg = (Math.atan2(localBest.r, D) * 180) / Math.PI;
       best = {
         kind: 'wall',
         frame,
         distance: D,
         planeId: plane.id,
-        reason: 'wall',
+        reason: Math.abs(sideDeg) > TURN_NUDGE_DEG ? 'wall-turn' : 'wall',
         score: localBest.score,
+        turnDeg: Math.abs(sideDeg) > TURN_NUDGE_DEG ? sideDeg : 0,
       };
     }
   }

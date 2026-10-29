@@ -30,6 +30,7 @@ import {
 import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
 import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT, StageView, SilhouetteBox, silhouettes } from './core/story.js';
 import { LanternSpark } from './render/spark.js';
+import { TurnArrow } from './render/turn-arrow.js';
 import { COPY } from './core/copy.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
@@ -97,6 +98,9 @@ export class App {
   lastMusic = 0;
   /** 0..1 the ending's amber room glow (eased). */
   private hearth = 0;
+  /** The stage is a little off to the side: +1 turn right, -1 turn left, 0 = no nudge. */
+  private turnDir = 0;
+  private readonly turnArrow = new TurnArrow();
   /** The 3D spark from the lantern to the wall (finale). */
   private readonly spark = new LanternSpark();
   private readonly sparkFrom = new Vector3();
@@ -228,6 +232,7 @@ export class App {
     add(this.occluder.group);
     add(this.props.group);
     add(this.spark.group);
+    add(this.turnArrow.sprite);
     const grips = world.playerSpaceEntities.gripSpaces;
     world.createTransformEntity(this.puppets[0].group, { parent: grips.left, persistent: true });
     world.createTransformEntity(this.puppets[1].group, { parent: grips.right, persistent: true });
@@ -653,6 +658,9 @@ export class App {
     computeFocalLight(fr, this.head, this.focal);
     this.calibrateNominal();
     this.composite.place(fr, this.placement.kind === 'scroll');
+    // a wall 30-45 degrees off to the side: the stage goes there, and a nudge
+    // (words under the stage, a chevron in the lantern's light) asks for a turn
+    this.turnDir = this.placement.turnDeg > 0 ? 1 : this.placement.turnDeg < 0 ? -1 : 0;
     this.dim.setStage(fr);
     this.stage.setLayout(fr.aspect, QUALITY_LEVELS[this.quality.level].stageResolution);
     const lp = this.lanternPlacement.position;
@@ -774,6 +782,16 @@ export class App {
     this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? 1 : 0;
     this.standIns.material.uniforms.uFade.value = this.capture && this.emulated ? this.standInFade : 1;
     this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
+    // the turn nudge ends once the head faces the stage (within 15 degrees)
+    if (this.turnDir !== 0) {
+      const sx = fr.origin.x - this.head.x;
+      const sz = fr.origin.z - this.head.z;
+      const fx = this.headForward.x;
+      const fz = this.headForward.z;
+      const cos = (sx * fx + sz * fz) / ((Math.hypot(sx, sz) || 1) * (Math.hypot(fx, fz) || 1));
+      if (cos > Math.cos((15 * Math.PI) / 180)) this.turnDir = 0;
+    }
+    this.turnArrow.update(this.turnDir, this.flameW, { x: -this.headForward.z, z: this.headForward.x }, time, dt);
     // passthrough: the real hands occlude the stage, the captions and the lantern
     const occlude = this.session.mode === 'ar' && !this.emulated && occluderEnabled(this.occluderQuery, this.settings.occluder);
     this.occluder.update(occlude, this.hands, this.head);
@@ -947,7 +965,11 @@ export class App {
     if (this.banner.mesh.visible) this.placeText(this.banner, fr, RIBBON_SPOTS[0], RIBBON_SPOTS[1]);
     // prompt: a few small-caps words under the stage, below the pictogram
     const prompt = !words ? '' : this.settings.fullCaptions ? tv.promptFull || tv.prompt : tv.prompt;
-    if (this.noticeTime > 0) {
+    if (this.turnDir !== 0) {
+      // the stage is a little off to the side: a nudge to turn toward it
+      this.promptText.set(this.turnDir > 0 ? COPY.NOTICE_TURN_RIGHT : COPY.NOTICE_TURN_LEFT);
+      this.promptText.show(vis);
+    } else if (this.noticeTime > 0) {
       // a system notice (room capture) takes the prompt's place for a moment
       this.promptText.set(this.notice);
       this.promptText.show(Math.min(1, this.noticeTime / 0.4, (6 - this.noticeTime) / 0.4));
@@ -1235,6 +1257,7 @@ export class App {
         ? {
             kind: p.kind,
             reason: p.reason,
+            turnDeg: +p.turnDeg.toFixed(1),
             distance: +p.distance.toFixed(3),
             height: +p.frame.height.toFixed(3),
             aspect: +p.frame.aspect.toFixed(3),
@@ -1250,6 +1273,7 @@ export class App {
           }
         : null,
       planes: this.planes.length,
+      turn: this.turnDir,
       wallsInRange: wallsInRange(this.planes, this.head, this.headForward),
       obstacles: this.obstacles.map((o) => o.label),
       planeLabels: this.planes.map((pl) => pl.label + '/' + pl.orientation),

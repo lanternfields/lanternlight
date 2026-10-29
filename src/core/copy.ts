@@ -59,6 +59,9 @@ export interface Copy {
   FINGER: Prompt;
   /** A one-line system notice under the stage while Quest's room capture starts. */
   NOTICE_ROOM: string;
+  /** The stage is on a wall a little off to the side: a nudge to turn toward it. */
+  NOTICE_TURN_LEFT: string;
+  NOTICE_TURN_RIGHT: string;
 }
 
 /** The script: STORY_V2.md section 3, verbatim (approved 2026-10-28). */
@@ -101,6 +104,8 @@ export const COPY: Copy = {
   CLOSER: ['Bring it closer\nto you', 'Bring your hand back toward you:\nits shadow grows bigger'],
   BIG: ['Be bigger\nthan the wolf', 'Bring your hand back toward you,\nor raise both hands to make your shadow big'],
   NOTICE_ROOM: "Let's find your walls",
+  NOTICE_TURN_LEFT: 'Turn a little\nto your left',
+  NOTICE_TURN_RIGHT: 'Turn a little\nto your right',
   FINGER: ['Hold one finger\nvery still', 'Hold up one pointing finger\nand keep it still so the bird can land'],
 };
 
