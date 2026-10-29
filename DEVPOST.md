@@ -11,7 +11,7 @@ Items marked **[device day]** are filled in from the Quest 3 session (see
 
 **Title:** Lanternlight
 
-**Tagline (114 characters):**
+**Tagline (115 characters):**
 > Mixed reality shadow theatre for Quest: your real hands cast shadows on your real wall, and the shadows come alive.
 
 **Thumbnail [device day]:** a Quest 3 point-of-view still. A real hand makes two long ears, and Pip the
