@@ -48,6 +48,30 @@ const HIND_LEG =
   'M -0.024 0.014 Q -0.032 -0.03 -0.014 -0.062 Q -0.017 -0.1 -0.013 -0.12 Q -0.013 -0.135 0.0 -0.135 L 0.014 -0.135 ' +
   'Q 0.021 -0.13 0.011 -0.123 Q 0.004 -0.119 0.004 -0.107 Q 0.004 -0.08 0.012 -0.052 Q 0.026 -0.02 0.02 0.014 Z';
 
+/** Pointed tufts along a line (a ruff): n triangles poking out along (nx, ny). */
+function tufts(ax: number, ay: number, bx: number, by: number, nx: number, ny: number, n: number, len: number): string {
+  const parts: string[] = [];
+  const dx = (bx - ax) / n;
+  const dy = (by - ay) / n;
+  for (let i = 0; i < n; i++) {
+    const x0 = ax + dx * i;
+    const y0 = ay + dy * i;
+    const x1 = x0 + dx;
+    const y1 = y0 + dy;
+    const k = len * (0.8 + 0.4 * ((i * 7) % 3) / 2);
+    const tx = (x0 + x1) / 2 + nx * k - dx * 0.35;
+    const ty = (y0 + y1) / 2 + ny * k - dy * 0.35;
+    // the base sits a little inside the body so each tuft joins it
+    parts.push(`M ${x0 - nx * 0.006} ${y0 - ny * 0.006} L ${tx} ${ty} L ${x1 - nx * 0.006} ${y1 - ny * 0.006} Z`);
+  }
+  return parts.join(' ');
+}
+// a heavy mane: tufts along the back of the neck and a ruff down the chest
+const MANE =
+  tufts(0.04, 0.183, 0.104, 0.24, -0.72, 0.69, 5, 0.022) + ' ' + tufts(0.135, 0.226, 0.112, 0.14, 0.96, -0.28, 5, 0.018);
+// a brow ridge over the eye (a wolf's heavy brow, not a fox's smooth skull)
+const BROW = 'M 0.0 0.034 Q 0.02 0.05 0.044 0.032 Q 0.03 0.038 0.012 0.03 Z';
+
 const HIP_X = -0.08;
 const HIP_Y = 0.132;
 const HEAD_X = 0.115;
@@ -66,10 +90,12 @@ export class WolfPuppet {
     const hole = createFlatMaterial(CH_HOLE);
     const geo = (d: string): ShapeGeometry => new ShapeGeometry(pathShapes(d), 8);
     this.group.add(this.body);
-    this.body.add(new Mesh(geo(TORSO + ' ' + NECK), cut));
+    this.body.add(new Mesh(geo(TORSO + ' ' + NECK + ' ' + MANE), cut));
     this.head.position.set(HEAD_X, HEAD_Y, 0);
-    this.head.add(new Mesh(geo(SKULL + ' ' + SNOUT + ' ' + JAW + ' ' + RUFF), cut));
+    this.head.add(new Mesh(geo(SKULL + ' ' + SNOUT + ' ' + JAW + ' ' + RUFF + ' ' + BROW), cut));
     this.ears.position.set(0.0, 0.03, 0);
+    // shorter ears than before: tall ears read as a fox
+    this.ears.scale.set(1, 0.82, 1);
     this.ears.add(new Mesh(geo(EARS), cut));
     this.head.add(this.ears);
     // an almond eye, slanting up toward the snout

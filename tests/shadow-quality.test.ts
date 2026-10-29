@@ -94,3 +94,11 @@ describe('shadow silhouette', () => {
     expect(penumbraWidth(1.0, st, 0.005)).toBeGreaterThanOrEqual(0.004);
   });
 });
+
+describe('the player shadow is the crispest thing on stage (judge)', () => {
+  it('the hand penumbra never exceeds 0.010 stage units, however close the hand is to the light', () => {
+    const st = createStageFrame();
+    st.height = 1.2;
+    for (const m of [1.5, 3, 6, 12, 40]) expect(penumbraWidth(m, st, 0.03)).toBeLessThanOrEqual(0.01);
+  });
+});

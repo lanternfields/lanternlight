@@ -603,13 +603,13 @@
     ctl.tau = 0.4;
     ctl.size = 1;
     // above and right of where the wolf will stop, so the wolf stays in clear light
-    shadowTo(0.62, 0.17, { size: 1 });
+    shadowTo(0.34, 0.16, { size: 1 });
     yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 10);
     // grow: a slow, continuous swell (the wolf hesitates as it builds) - the
     // inset shows why: the hand comes back toward you
     setShot('inset', 1, 0.35);
     ctl.tau = 0.5;
-    shadowTo(0.62, 0.17, { size: 1.5 });
+    shadowTo(0.34, 0.16, { size: 1.5 });
     yield* until(() => S().wolf.state === 'rear' || S().wolf.state === 'flee', 8);
     mark('wolf-scared');
     yield* wait(0.6);
@@ -830,10 +830,10 @@
     yield* tale3('wolf', 'wolf');
     setPose('open', 0.5);
     orient(60, 0, 0);
-    shadowTo(0.62, 0.17, { size: 1 });
+    shadowTo(0.34, 0.16, { size: 1 });
     yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 12);
     ctl.tau = 0.5;
-    shadowTo(0.62, 0.17, { size: 1.5 });
+    shadowTo(0.34, 0.16, { size: 1.5 });
     yield* until(() => S().wolf.hesitate > 0.5, 6);
     yield* shoot('wolf-hesitate');
     yield* until(() => S().wolf.state === 'rear', 8);

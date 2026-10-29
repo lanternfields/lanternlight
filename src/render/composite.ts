@@ -35,6 +35,7 @@ const STAGE_FRAG = /* glsl */ `
   uniform float uContrast;
   uniform float uDetail;
   uniform float uLift;
+  uniform float uGiant;
   uniform float uPoolW;
   uniform float uTime;
   uniform float uUnroll;
@@ -100,7 +101,8 @@ const STAGE_FRAG = /* glsl */ `
       float addK = uContrast > 0.5 ? 0.62 : 0.52;
       vec3 add = (uContrast > 0.5 ? vec3(1.0, 0.96, 0.88) : warm) * lit * addK;
       float dimA = lit * (uContrast > 0.5 ? 0.22 : 0.16); // a little multiply = richer colour
-      float shadowA = (uContrast > 0.5 ? 0.97 : 0.88) * shadow * smoothstep(0.0, 0.25, pool);
+      // the giant: your shadow deepens to near black as it grows over the wolf
+      float shadowA = (uContrast > 0.5 ? 0.97 : mix(0.88, 0.97, uGiant)) * shadow * smoothstep(0.0, 0.25, pool);
       vec3 rgb = add * (1.0 - shadowA) + shadowCol * shadowA;
       float g = clamp(glow, 0.0, 1.0) * min(1.0, pool * 1.5 + 0.25);
       rgb += glowCol * g * 0.9;
@@ -134,6 +136,7 @@ export class StageComposite {
         uContrast: { value: 0 },
         uDetail: { value: 1 },
         uLift: { value: 0 },
+        uGiant: { value: 0 },
         uPoolW: { value: 1 },
         uTime: { value: 0 },
         uUnroll: { value: 1 },

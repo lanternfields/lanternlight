@@ -796,6 +796,7 @@ export class App {
     // the scare: a flare of lamplight; the light brightens as your shadow grows big enough
     u.uLight.value = view.light * (1 + 0.45 * view.flare + 0.28 * view.brighten);
     u.uWarmth.value = Math.min(1, Math.max(view.warmth, view.flare * 0.9, view.brighten * 0.4));
+    u.uGiant.value = Math.max(view.brighten, view.flare);
     // ...and the wall trembles for a moment (never with reduced motion)
     if (view.tremble > 0.001 && !reduce) {
       const amp = 0.0035 * fr.height * view.tremble;

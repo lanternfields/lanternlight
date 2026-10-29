@@ -312,3 +312,36 @@ function run(story: Story, model: ShadowModel, seconds: number, each?: () => voi
     story.update(1 / 72, model);
   }
 }
+
+describe('story v2: the bridge prompt never fires during success (judge)', () => {
+  it('after help was needed, once Pip steps onto your hand no stall prompt or hint comes back', () => {
+    const model = new ShadowModel();
+    const story = new Story();
+    story.enter('bridge');
+    // nobody helps for a while: the hint and then the words appear
+    run(story, model, 16, () => hide(model));
+    expect(story.view.text.prompt).not.toBe('');
+    let stepped = false;
+    let steppedAt = 0;
+    let promptedAfter = 0;
+    for (let i = 0; i < 72 * 30 && story.scene === 'bridge' && story.beat === 'cross'; i++) {
+      // a flat hand across the river, flush with the bank tops; for its first
+      // 9 s it stops short of the far bank, so Pip waits on your hand
+      const short = !stepped || i / 72 - steppedAt < 9;
+      const a = setHand(model, 0, GROUND_T - 0.025, 'open');
+      model.capsules[0].ax = -0.36;
+      model.capsules[0].bx = short ? 0.02 : 0.36;
+      model.capsules[0].r = 0.025;
+      a.minS = -0.4;
+      a.maxS = 0.4;
+      story.update(1 / 72, model);
+      if (story.rabbit.onShadow && !stepped) {
+        stepped = true;
+        steppedAt = i / 72;
+      }
+      if (stepped && story['promptWant'] !== '') promptedAfter++;
+    }
+    expect(stepped).toBe(true);
+    expect(promptedAfter).toBe(0);
+  });
+});

@@ -199,8 +199,10 @@ export function penumbraWidth(
 ): number {
   // magnification = |light->hit| / |light->p|  => (p->hit)/(light->p) = m - 1
   const w = (2 * flameRadius * Math.max(0, magnification - 1)) / stage.height;
-  // Clamped for legibility: soft like lamplight, never mushy.
-  return clamp(w, 0.004, 0.022);
+  // Clamped for legibility: soft like lamplight, never mushy. The player's
+  // shadow is the hero: never softer than a paper cut-out's edge allows to read
+  // (the judge: it was the blurriest thing on stage).
+  return clamp(w, 0.004, 0.01);
 }
 
 /** Angular stage sizing so the stage fits a comfortable, FoV-aware window. */

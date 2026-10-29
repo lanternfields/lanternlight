@@ -454,6 +454,8 @@ export class Story {
   private peerTime = 0;
   /** Seconds the rabbit has waited for help this round (drives the plank assist). */
   private waitTime = 0;
+  /** Pip has stepped onto your hand this crossing (the stall prompt stays away). */
+  private bridgeHelped = false;
   private readonly plank = { active: false, t: 0, done: false, index: 0 };
   private homeFromX = 0;
   private homeFromY = 0;
@@ -760,6 +762,7 @@ export class Story {
     this.view.burrow.t = GROUND_T;
     this.peerTime = 0;
     this.waitTime = 0;
+    this.bridgeHelped = false;
     this.plank.active = false;
     this.plank.done = false;
   }
@@ -1374,7 +1377,13 @@ export class Story {
       const r = this.rabbit;
       if (v.rabbit.peering && r.state === 'idle') this.peerTime += dt;
       else if (r.state === 'hop') this.peerTime = Math.max(0, this.peerTime - dt);
-      const needHelp = this.peerTime > (this.settings.gentle ? 1.5 : 2.5);
+      // once Pip has stepped onto your hand the bridge is working: no stall
+      // hint or prompt again this crossing, however long Pip pauses on it
+      if (r.onShadow) {
+        this.bridgeHelped = true;
+        this.waitTime = 0;
+      }
+      const needHelp = !this.bridgeHelped && this.peerTime > (this.settings.gentle ? 1.5 : 2.5);
       const g = this.rounds[Math.min(this.round, this.rounds.length - 1)];
       v.ghost.pose = 'bridge';
       v.ghost.s = 0;
