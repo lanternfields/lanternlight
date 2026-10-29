@@ -61,3 +61,5 @@ CLAUDE.md
 **/AGENTS.md
 # pnpm-only config (this project builds with npm)
 pnpm-workspace.yaml
+__pycache__/
+*.pyc
