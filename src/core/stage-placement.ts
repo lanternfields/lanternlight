@@ -26,7 +26,7 @@ export interface PlaneInfo {
   label: string;
   /** World-space polygon outline (closed implicitly). */
   points: V3[];
-  /** World-space unit normal (plane's +Y). */
+  /** World-space unit normal (the plane's +Y; on a horizontal plane it may point down: the emulator gives tables a downward +Y). */
   normal: V3;
 }
 
@@ -75,23 +75,29 @@ export function occlusionHeight(
   const consider = (pts: readonly V3[], top: number) => {
     if (top >= head.y - 0.15) return; // near/above eye level: a keep-out area instead
     let far = 0;
-    let lateralHit = false;
+    // does the surface reach across the stage's footprint? (its sideways extent,
+    // not just its corners: a wide desk has no corner in front of the viewer)
+    let sideMin = Infinity;
+    let sideMax = -Infinity;
     for (const p of pts) {
       const rx = p.x - head.x;
       const rz = p.z - head.z;
       const along = rx * dir.x + rz * dir.z;
       const side = rx * right.x + rz * right.z;
-      if (along > 0.05 && along < wallDistance + 0.05 && Math.abs(side) < halfWidth * (along / wallDistance) + 0.15) {
-        lateralHit = true;
+      if (along > 0.05 && along < wallDistance + 0.05) {
+        sideMin = Math.min(sideMin, side);
+        sideMax = Math.max(sideMax, side);
       }
       far = Math.max(far, Math.min(along, wallDistance));
     }
+    const reach = halfWidth + 0.15;
+    const lateralHit = sideMin < reach && sideMax > -reach;
     if (!lateralHit || far < 0.1) return;
     const y = head.y + ((top - head.y) * wallDistance) / far;
     if (y > yOcc) yOcc = y;
   };
   for (const p of planes) {
-    if (p.orientation === 'vertical' || p.normal.y < 0.85) continue;
+    if (p.orientation === 'vertical' || Math.abs(p.normal.y) < 0.85) continue;
     const label = normalizeLabel(p.label);
     if (label === 'floor' || label === 'ceiling') continue;
     const top = p.points.reduce((a, q) => a + q.y, 0) / p.points.length;
@@ -551,7 +557,7 @@ export function clearDistanceAhead(
     }
   };
   for (const p of planes) {
-    if (p.orientation === 'vertical' || p.normal.y < 0.85) continue;
+    if (p.orientation === 'vertical' || Math.abs(p.normal.y) < 0.85) continue;
     const label = normalizeLabel(p.label);
     if (label === 'floor' || label === 'ceiling') continue;
     consider(p.points, p.points.reduce((a, q) => a + q.y, 0) / p.points.length);
@@ -643,7 +649,7 @@ function lanternFrame(head: Readonly<V3>, forward: Readonly<V3>, handedness: 'le
  * place (30 cm ahead, 20 cm to the non-dominant side), out of the hand's lane.
  */
 function lanternSpotOn(p: PlaneInfo, head: Readonly<V3>, f: LanternFrame): { cost: number; x: number; y: number; z: number } | null {
-  if (p.orientation === 'vertical' || p.normal.y < 0.85 || p.points.length < 3) return null;
+  if (p.orientation === 'vertical' || Math.abs(p.normal.y) < 0.85 || p.points.length < 3) return null;
   if (!SURFACE_LABELS.has(normalizeLabel(p.label))) return null;
   const y = p.points.reduce((acc, q) => acc + q.y, 0) / p.points.length;
   // seated table height: from a low side table to a high desk

@@ -391,3 +391,17 @@ describe('what a usable wall is', () => {
     }
   });
 });
+
+describe('tables whose plane normal points down (the emulator gives them one)', () => {
+  const down = (p: PlaneInfo): PlaneInfo => ({ ...p, normal: new V3(0, -1, 0) });
+  it('the lantern still sits on such a table', () => {
+    // the quiet-window sweep: 0 lanterns on tables, every table had normal (0,-1,0)
+    expect(chooseLantern([down(table('t', 0.75, -0.6, 0.6, -0.9, -0.15))], head, fwd).onSurface).toBe(true);
+  });
+  it('such a desk still pushes the stage above its sight line', () => {
+    const wall = wallZ('w', -1.1, -2, 2, 0, 2.6);
+    const desk = down(table('d', 0.95, -0.8, 0.8, -1.1, -0.45, 'table'));
+    const p = chooseStage([wall, desk], new V3(0, 1.2, 0), fwd);
+    if (p.kind === 'wall') expect(p.frame.origin.y - p.frame.height / 2).toBeGreaterThan(0.95);
+  });
+});
