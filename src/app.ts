@@ -23,6 +23,7 @@ import {
   StagePlacement,
   chooseLantern,
   chooseStage,
+  surfacesInReach,
   DEFAULT_PLACEMENT,
 } from './core/stage-placement.js';
 import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
@@ -1169,7 +1170,11 @@ export class App {
           }
         : null,
       lantern: this.lanternPlacement
-        ? { onSurface: this.lanternPlacement.onSurface, position: [this.lanternPlacement.position.x, this.lanternPlacement.position.y, this.lanternPlacement.position.z].map((v) => +v.toFixed(3)) }
+        ? {
+            onSurface: this.lanternPlacement.onSurface,
+            surfacesInReach: surfacesInReach(this.planes, this.head),
+            position: [this.lanternPlacement.position.x, this.lanternPlacement.position.y, this.lanternPlacement.position.z].map((v) => +v.toFixed(3)),
+          }
         : null,
       planes: this.planes.length,
       obstacles: this.obstacles.map((o) => o.label),

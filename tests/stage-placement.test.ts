@@ -177,6 +177,46 @@ describe('lantern placement', () => {
     const l = chooseLantern([], head, fwd, 'left');
     expect(r.position.x).toBeLessThan(l.position.x);
   });
+
+  // The judge's sweep: the lantern sat on a table in 0 of 24 runs, because only
+  // one point 30 cm ahead (plus an 18 cm slide) was ever tried.
+  const inset = (l: { position: V3 }, x0: number, x1: number, z0: number, z1: number): number =>
+    Math.min(l.position.x - x0, x1 - l.position.x, l.position.z - Math.min(z0, z1), Math.max(z0, z1) - l.position.z);
+
+  it('finds a desk that starts beyond the old 48 cm probe, and keeps in from its edge', () => {
+    const l = chooseLantern([table('d', 0.74, -0.8, 0.8, -0.95, -0.55, 'desk')], head, fwd);
+    expect(l.onSurface).toBe(true);
+    expect(inset(l, -0.8, 0.8, -0.95, -0.55)).toBeGreaterThanOrEqual(0.07 - 1e-9);
+  });
+
+  it('finds a side table beside the seat (non-dominant side preferred)', () => {
+    const side = table('s', 0.6, -0.75, -0.3, -0.45, 0.05, 'other');
+    const l = chooseLantern([side], head, fwd, 'right');
+    expect(l.onSurface).toBe(true);
+    expect(l.position.x).toBeLessThan(-0.3);
+  });
+
+  it('a table on the dominant side is still used when it is the only one', () => {
+    const l = chooseLantern([table('s', 0.7, 0.3, 0.9, -0.6, -0.1)], head, fwd, 'right');
+    expect(l.onSurface).toBe(true);
+    expect(l.position.x).toBeGreaterThan(0.3);
+  });
+
+  it('stays out of the hand lane straight ahead on a narrow desk in front', () => {
+    const l = chooseLantern([table('d', 0.75, -0.6, 0.6, -0.7, -0.3)], head, fwd, 'right');
+    expect(l.onSurface).toBe(true);
+    expect(Math.abs(l.position.x)).toBeGreaterThanOrEqual(0.12 - 1e-9);
+    expect(l.position.x).toBeLessThan(0);
+  });
+
+  it('floats when the only table is out of reach, or behind the viewer', () => {
+    expect(chooseLantern([table('far', 0.75, -0.6, 0.6, -2.2, -1.2)], head, fwd).onSurface).toBe(false);
+    expect(chooseLantern([table('back', 0.75, -0.6, 0.6, 0.2, 0.9)], head, fwd).onSurface).toBe(false);
+  });
+
+  it('a table too small to keep the inset is skipped', () => {
+    expect(chooseLantern([table('tiny', 0.75, -0.25, -0.15, -0.5, -0.4)], head, fwd).onSurface).toBe(false);
+  });
 });
 
 describe('furniture occlusion', () => {

@@ -469,7 +469,50 @@ function pointInPolygonXZ(x: number, z: number, pts: readonly V3[]): boolean {
   return inside;
 }
 
-/** Lantern: on a table in front of the viewer if there is one, else floating. */
+/**
+ * How many table-height surfaces come within reach of a seated viewer
+ * (diagnostics: the room sweep checks the lantern uses one when there is one).
+ */
+export function surfacesInReach(planes: readonly PlaneInfo[], head: Readonly<V3>): number {
+  let n = 0;
+  for (const p of planes) {
+    if (p.orientation === 'vertical' || p.normal.y < 0.85 || p.points.length < 3) continue;
+    if (!SURFACE_LABELS.has(normalizeLabel(p.label))) continue;
+    const y = p.points.reduce((acc, q) => acc + q.y, 0) / p.points.length;
+    if (y < head.y - 0.95 || y > head.y - 0.22) continue;
+    const d = pointInPolygonXZ(head.x, head.z, p.points) ? 0 : edgeDistanceXZ(head.x, head.z, p.points);
+    if (d <= LANTERN_REACH - LANTERN_INSET) n++;
+  }
+  return n;
+}
+
+/** Distance (XZ) from a point to a polygon's outline. */
+function edgeDistanceXZ(x: number, z: number, pts: readonly V3[]): number {
+  let best = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const ax = pts[j].x;
+    const az = pts[j].z;
+    const ex = pts[i].x - ax;
+    const ez = pts[i].z - az;
+    const len2 = ex * ex + ez * ez || 1e-12;
+    const t = clamp(((x - ax) * ex + (z - az) * ez) / len2, 0, 1);
+    best = Math.min(best, Math.hypot(x - (ax + ex * t), z - (az + ez * t)));
+  }
+  return best;
+}
+
+/** How far the lantern may sit from the head (horizontally): an easy reach, seated. */
+export const LANTERN_REACH = 0.9;
+/** Kept this far in from a table's edge (m). */
+export const LANTERN_INSET = 0.07;
+
+/**
+ * Lantern: on a real table, desk or other surface at seated table height within
+ * reach, else gently floating. Every such surface is searched: the spot is the
+ * point inside it (inset from the edge) closest to the ideal place, which is
+ * 30 cm ahead and 20 cm to the non-dominant side, below and beside the hands,
+ * so the performing hand never brushes it.
+ */
 export function chooseLantern(
   planes: readonly PlaneInfo[],
   head: Readonly<V3>,
@@ -480,38 +523,56 @@ export function chooseLantern(
   const right = new V3();
   cross(right, fwd, new V3(0, 1, 0));
   normalize(right, right);
-  // Beside the performing space (non-dominant side, below the hands) so the
-  // hands never brush it by accident while making shadows.
-  const side = handedness === 'right' ? -0.2 : 0.2;
+  const side = handedness === 'right' ? -1 : 1;
   const target = new V3().copy(head);
   addScaled(target, target, fwd, 0.3);
-  addScaled(target, target, right, side);
+  addScaled(target, target, right, 0.2 * side);
   const floatY = head.y - 0.45;
-  let bestY = Infinity;
-  let bestId: string | null = null;
+  let best: { cost: number; x: number; y: number; z: number; id: string } | null = null;
+  const STEP = 0.04;
   for (const p of planes) {
     if (p.orientation === 'vertical' || p.normal.y < 0.85 || p.points.length < 3) continue;
     if (!SURFACE_LABELS.has(normalizeLabel(p.label))) continue;
     const y = p.points.reduce((acc, q) => acc + q.y, 0) / p.points.length;
-    if (y < head.y - 0.85 || y > head.y - 0.22) continue;
-    // Allow the lantern to slide up to 18 cm toward the table to sit on it.
-    let found = pointInPolygonXZ(target.x, target.z, p.points);
-    if (!found) {
-      const t2 = new V3().copy(target);
-      addScaled(t2, t2, fwd, 0.18);
-      if (pointInPolygonXZ(t2.x, t2.z, p.points)) {
-        target.copy(t2);
-        found = true;
+    // seated table height: from a low side table to a high desk
+    if (y < head.y - 0.95 || y > head.y - 0.22) continue;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (const q of p.points) {
+      x0 = Math.min(x0, q.x);
+      x1 = Math.max(x1, q.x);
+      z0 = Math.min(z0, q.z);
+      z1 = Math.max(z1, q.z);
+    }
+    // only the part of the surface within reach
+    x0 = Math.max(x0, head.x - LANTERN_REACH);
+    x1 = Math.min(x1, head.x + LANTERN_REACH);
+    z0 = Math.max(z0, head.z - LANTERN_REACH);
+    z1 = Math.min(z1, head.z + LANTERN_REACH);
+    for (let x = x0; x <= x1 + 1e-9; x += STEP) {
+      for (let z = z0; z <= z1 + 1e-9; z += STEP) {
+        const rx = x - head.x;
+        const rz = z - head.z;
+        if (rx * rx + rz * rz > LANTERN_REACH * LANTERN_REACH) continue;
+        const ahead = rx * fwd.x + rz * fwd.z;
+        // in front of the viewer, not under their chin
+        if (ahead < 0.15) continue;
+        if (!pointInPolygonXZ(x, z, p.points)) continue;
+        if (edgeDistanceXZ(x, z, p.points) < LANTERN_INSET) continue;
+        const lateral = rx * right.x + rz * right.z;
+        // closest to the ideal spot; out of the hand's lane straight ahead;
+        // the non-dominant side preferred; a table near seated height preferred
+        const cost =
+          Math.hypot(x - target.x, z - target.z) +
+          1.5 * Math.max(0, 0.12 - Math.abs(lateral)) +
+          (lateral * side < 0 ? 0.15 : 0) +
+          0.3 * Math.abs(y - floatY);
+        if (!best || cost < best.cost) best = { cost, x, y, z, id: p.id };
       }
     }
-    if (!found) continue;
-    if (Math.abs(y - floatY) < Math.abs(bestY - floatY)) {
-      bestY = y;
-      bestId = p.id;
-    }
   }
-  if (bestId !== null) {
-    return { position: new V3(target.x, bestY, target.z), onSurface: true, planeId: bestId };
-  }
+  if (best) return { position: new V3(best.x, best.y, best.z), onSurface: true, planeId: best.id };
   return { position: new V3(target.x, floatY, target.z), onSurface: false, planeId: null };
 }

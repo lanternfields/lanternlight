@@ -46,7 +46,7 @@ try {
       const inLight = a.present && Math.abs(a.centroid[0]) < 0.6 && Math.abs(a.centroid[1]) < 0.45;
       const ok = facing > 0.3 && angle < 35 && inLight && s.phase === 'show';
       if (!ok) failures++;
-      const r = { room, yaw, ok, kind: st.kind, reason: st.reason, distance: st.distance, height: st.height, angle: +angle.toFixed(1), lanternOnTable: s.lantern.onSurface, planes: s.planes, shadow: a.centroid, size: a.size };
+      const r = { room, yaw, ok, kind: st.kind, reason: st.reason, distance: st.distance, height: st.height, angle: +angle.toFixed(1), lanternOnTable: s.lantern.onSurface, tablesInReach: s.lantern.surfacesInReach, planes: s.planes, shadow: a.centroid, size: a.size };
       results.push(r);
       console.log('ROOM', JSON.stringify(r));
       await shot(page, `room-${room}-yaw${yaw}`);
@@ -56,8 +56,15 @@ try {
   console.log('ERROR', e.message);
   failures++;
 }
+// the lantern sits on a real table whenever a table is within reach of the seat
+const reach = results.filter((r) => r.tablesInReach > 0);
+const onTable = reach.filter((r) => r.lanternOnTable).length;
+if (onTable < reach.length) {
+  console.log('LANTERN', `on a table in ${onTable} of ${reach.length} runs with a table in reach`);
+  failures += reach.length - onTable;
+}
 const errors = logs.filter((l) => /PAGEERROR/i.test(l));
-writeJSON('rooms', { results, failures, errors: errors.slice(0, 20) });
-console.log('RESULT', failures === 0 && errors.length === 0 ? 'PASS' : 'FAIL', `${results.length - failures}/${results.length}`, 'walls:', results.filter((r) => r.kind === 'wall').length, 'scrolls:', results.filter((r) => r.kind === 'scroll').length, 'page errors:', errors.length);
+writeJSON('rooms', { results, failures, lanternOnTable: `${onTable}/${reach.length}`, errors: errors.slice(0, 20) });
+console.log('RESULT', failures === 0 && errors.length === 0 ? 'PASS' : 'FAIL', `${results.length - failures}/${results.length}`, 'walls:', results.filter((r) => r.kind === 'wall').length, 'scrolls:', results.filter((r) => r.kind === 'scroll').length, 'lantern on table:', `${onTable}/${reach.length}`, 'page errors:', errors.length);
 await browser.close();
 process.exit(failures === 0 && errors.length === 0 ? 0 : 1);
