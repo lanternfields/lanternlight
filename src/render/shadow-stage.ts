@@ -400,7 +400,7 @@ export class ShadowStage {
     const set = view.set;
     // penumbra breathes a little with the flame; the bridge tale brings the
     // shadows into focus, so a flat hand reads as a hand (fingers and all)
-    this.focus += ((view.scene === 'bridge' ? 0.55 : 1) - this.focus) * (1 - Math.exp(-3 * dt));
+    this.focus += ((view.scene === 'bridge' ? 0.38 : 1) - this.focus) * (1 - Math.exp(-3 * dt));
     this.penumbra = model.penumbra * this.focus * (1 + (reduceMotion ? 0 : 0.08 * flicker));
     this.glows.begin();
     this.details.begin();

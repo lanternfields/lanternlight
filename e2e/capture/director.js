@@ -177,6 +177,20 @@
   ]);
   // The bridge: a flat hand with the fingers a little apart, so its shadow keeps them.
   composite('bridgeHand', 'flat', [['open', ['index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'], 0.45]]);
+  // The bridge, read as a hand: fingers curling a little more toward the pinky
+  // (their tips fan out at the leading edge), and optionally the thumb raised.
+  const finger = (f) => [`${f}-finger-phalanx-proximal`, `${f}-finger-phalanx-intermediate`, `${f}-finger-phalanx-distal`, `${f}-finger-tip`];
+  composite('bridgeFan', 'flat', [
+    ['fist', finger('middle'), 0.14],
+    ['fist', finger('ring'), 0.28],
+    ['fist', finger('pinky'), 0.42],
+  ]);
+  composite('bridgeRail', 'flat', [
+    ['thumbs-up', THUMB],
+    ['fist', finger('middle'), 0.14],
+    ['fist', finger('ring'), 0.28],
+    ['fist', finger('pinky'), 0.42],
+  ]);
   /** The bridge hand's roll toward the light (fingers show in its shadow). */
   const BRIDGE_ROLL = 0;
   const setPose = (name, dur = 0.45) => {
@@ -434,7 +448,7 @@
       // ...and has been read: Pip steps onto the hand as "on tiptoe" comes up
       yield* until(() => !S().view.text.line, 6);
     }
-    setPose('bridgeHand', 0.6);
+    setPose('bridgeFan', 0.6);
     orient(-22, 90, BRIDGE_ROLL);
     ctl.tau = 0.3;
     setShot('inset', 1, 0.35); // the hand laid flat, from the side
@@ -801,7 +815,7 @@
     rest();
     goto('bridge');
     yield* tale3('bridge', 'bridge');
-    setPose('bridgeHand', 0.6);
+    setPose('bridgeFan', 0.6);
     orient(-22, 90, BRIDGE_ROLL);
     ctl.tau = 0.3;
     shadowTo(0.0, -0.358, { feature: 'handTop', size: 1.0 });
@@ -865,10 +879,10 @@
     yield* wait(0.3);
     app().freezeStory = true;
     const variants = [
-      ['open', -22, 90, 60],
-      ['open', -22, 90, 80],
-      ['bridgeHand', -22, 90, 70],
-      ['open', -10, 90, 70],
+      ['bridgeFan', -22, 90, 0],
+      ['bridgeFan', -22, 90, 180],
+      ['bridgeRail', -22, 90, 0],
+      ['bridgeRail', -22, 90, 180],
     ];
     for (const [p, pitch, yaw, roll] of variants) {
       setPose(p, 0.3);
