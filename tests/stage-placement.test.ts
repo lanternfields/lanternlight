@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { V3, mulberry32, dot, sub } from '../src/core/math.js';
 import {
   DEFAULT_PLACEMENT,
+  MIN_STAGE_FRACTION,
   PlaneInfo,
   chooseLantern,
   chooseStage,
@@ -349,7 +350,7 @@ describe('placement review fixes', () => {
       sub(rel, eye, p.frame.origin);
       const dist = Math.hypot(rel.x, rel.y, rel.z);
       const ang = (2 * Math.atan(p.frame.height / 2 / dist) * 180) / Math.PI;
-      expect(ang).toBeGreaterThan(0.6 * 2 * (DEFAULT_PLACEMENT.verticalHalfAngleDeg + 2) - 1);
+      expect(ang).toBeGreaterThan(MIN_STAGE_FRACTION * 2 * (DEFAULT_PLACEMENT.verticalHalfAngleDeg + 2) - 1);
       // and its top never more than ~30 degrees above the eye
       const top = p.frame.origin.y + p.frame.height / 2 - eye.y;
       expect((Math.atan2(top, Math.hypot(rel.x, rel.z)) * 180) / Math.PI).toBeLessThan(31);
@@ -360,5 +361,33 @@ describe('placement review fixes', () => {
     expect(chooseLantern([table('coffee', 0.35, -0.5, 0.5, -1.0, -0.6)], eye, fwd).onSurface).toBe(false);
     // ...but a coffee table right at the knees is fine
     expect(chooseLantern([table('coffee', 0.45, -0.5, 0.5, -0.55, -0.2)], eye, fwd).onSurface).toBe(true);
+  });
+});
+
+// A real shadow falls perfectly well on a door, framed art or a cupboard front;
+// only screens, windows, mirrors, open shelving and openings block a spot.
+describe('what a usable wall is', () => {
+  const eye = new V3(0, 1.2, 0);
+  const wall = wallZ('w', -2, -1.2, 1.2, 0, 2.6);
+  it('a door or framed art in the middle of the wall is a fine surface', () => {
+    for (const label of ['DOOR_FRAME', 'WALL_ART']) {
+      const thing = wallZ('x', -2, -0.6, 0.6, 0.2, 2.2, label);
+      const p = chooseStage([wall, thing], eye, fwd);
+      expect(p.kind, label).toBe('wall');
+    }
+  });
+
+  it('a cupboard standing against the wall is a fine surface, not furniture in the way', () => {
+    const cupboard = { label: 'STORAGE', min: new V3(-0.8, 0, -2.0), max: new V3(0.8, 2.0, -1.55) };
+    expect(chooseStage([wall], eye, fwd, undefined, [cupboard]).kind).toBe('wall');
+  });
+
+  it('a screen, a window or open shelving covering the wall blocks it, and the reason says what', () => {
+    for (const label of ['SCREEN', 'WINDOW_FRAME', 'SHELF']) {
+      const thing = wallZ('x', -2, -1.2, 1.2, 0.3, 2.4, label);
+      const p = chooseStage([wall, thing], eye, fwd);
+      expect(p.kind, label).toBe('scroll');
+      expect(p.reason, label).toBe(`wall-covered:${label.toLowerCase().replace(/_/g, '')}`);
+    }
   });
 });

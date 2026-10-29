@@ -205,6 +205,7 @@ const insetsDir = path.join(OUT, `${name}-insets`);
 fs.rmSync(insetsDir, { recursive: true, force: true });
 fs.mkdirSync(insetsDir, { recursive: true });
 const insetAlpha = {};
+const insetRibbon = {};
 const ribbonLog = [];
 let prevInset = false;
 while (!last.done && last.t < maxSeconds) {
@@ -223,6 +224,7 @@ while (!last.done && last.t < maxSeconds) {
     r.audio = [app.story.view.flame, app.lastMusic, app.story.events.map((e) => [e.type, e.s, e.t, e.value]), app.audio.ambience];
     const rb = app.ribbonStats;
     r.ribbon = [rb.line, +rb.opacity.toFixed(4), +rb.story.toFixed(5), +rb.hands.toFixed(5), app.captureShot];
+    r.ribbonBox = [+app.banner.contentW.toFixed(4), +app.banner.contentH.toFixed(4)];
     return r;
   }, FPS);
   ribbonLog.push([n / FPS, ...last.ribbon]);
@@ -242,6 +244,8 @@ while (!last.done && last.t < maxSeconds) {
     }, !prevInset);
     await page.screenshot({ path: path.join(insetsDir, String(frameIndex).padStart(6, '0') + '.jpg'), type: 'jpeg', quality: 90 });
     insetAlpha[frameIndex] = +last.shot.inset.toFixed(3);
+    // the ribbon's size (stage units) and the camera blend, so the inset keeps clear of it
+    if (last.ribbon[1] > 0.01) insetRibbon[frameIndex] = [last.ribbonBox[0], last.ribbonBox[1], +last.shot.wide.toFixed(3)];
   }
   prevInset = insetNow;
   if (n % 600 === 0) console.log('FRAME', n, 't', last.t.toFixed(1), last.scene, last.beat, `${((Date.now() - t0) / 1000).toFixed(0)}s real`);
@@ -365,6 +369,7 @@ fs.writeFileSync(path.join(OUT, `${name}.marks.json`), JSON.stringify({ fps: FPS
 // picture-in-picture: composite the hand insets onto their frames
 if (Object.keys(insetAlpha).length) {
   fs.writeFileSync(path.join(insetsDir, 'alpha.json'), JSON.stringify(insetAlpha));
+  fs.writeFileSync(path.join(insetsDir, 'ribbon.json'), JSON.stringify(insetRibbon));
   const ins = spawnSync('python', ['-I', path.join(here, 'tools', 'inset_composite.py'), framesDir, insetsDir], { encoding: 'utf8' });
   console.log('INSETS', Object.keys(insetAlpha).length, ins.status === 0 ? 'composited' : 'FAILED ' + ins.stderr);
 }

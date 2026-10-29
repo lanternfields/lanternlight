@@ -36,7 +36,7 @@ interface StyleSpec {
 
 const SPECS: Record<TextStyle, StyleSpec> = {
   // italic lower case: x-height ~0.4 em -> 0.14 em gives ~0.056 stage units
-  banner: { w: 2048, h: 720, units: 1.44, em: 0.14 },
+  banner: { w: 2048, h: 900, units: 1.44, em: 0.14 },
   // small caps (~0.46 em tall) -> 0.13 em gives ~0.06 units
   prompt: { w: 2048, h: 420, units: 1.6, em: 0.125 },
   title: { w: 3072, h: 300, units: 1.5, em: 0.12 },

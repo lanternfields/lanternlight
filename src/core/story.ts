@@ -1185,7 +1185,7 @@ export class Story {
     // inside the lamplight, where the crocodile can be seen catching them
     const side = this.rng() < 0.5 ? -1 : 1;
     f.x = side * (0.24 + this.rng() * 0.14);
-    f.y = -0.12 + this.rng() * 0.22;
+    f.y = -0.15 + this.rng() * 0.17; // (below even a three-row ribbon)
     f.alive = true;
     f.glow = 0;
     f.eaten = 0;
@@ -1279,7 +1279,7 @@ export class Story {
         f.glow = Math.min(1, f.glow + dt * 1.5);
         const wobble = this.settings.reduceMotion ? 0.3 : 1;
         let vx = Math.sin(this.time * 0.7 + i * 2.1) * 0.05 * wobble - f.x * 0.06;
-        let vy = Math.cos(this.time * 0.9 + i * 1.3) * 0.04 * wobble - (f.y - 0.08) * 0.08;
+        let vy = Math.cos(this.time * 0.9 + i * 1.3) * 0.04 * wobble - (f.y + 0.05) * 0.08;
         if (actor && mouthOpen) {
           const d = dist2(f.x, f.y, actor.mouthS, actor.mouthT);
           if (d < attractR && d > 1e-4) {
@@ -1291,7 +1291,7 @@ export class Story {
         // fireflies stay inside the lamplight
         // (kept low enough that the whole crocodile chasing them stays in the light)
         f.x = clamp(f.x + vx * dt, -0.42, 0.42);
-        f.y = clamp(f.y + vy * dt, -0.18, 0.15);
+        f.y = clamp(f.y + vy * dt, -0.2, 0.03);
       }
       // Chomp! A firefly is caught if it is anywhere along the open jaws
       // (recorded while the mouth was open) or near where the jaws met.

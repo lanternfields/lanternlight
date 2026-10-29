@@ -89,6 +89,12 @@ pure black; the shapes do not change.
 - **Size:** x-height at least 34 px in the 1080p capture (at least 1.4° of
   visual angle in the headset): storyteller lines are 0.14 stage units of em,
   prompts 0.156.
+- **Line breaks:** authored per line ID in `src/core/copy.ts`, at phrase
+  boundaries, never re-wrapped. Rows of about 24 characters keep full size (a
+  longer row makes its whole line a little smaller). A ribbon may take three
+  rows where the scene has room for it, two in the hub (the emblems) and while
+  the finale's bird is in flight. No row ends on a short word or a sentence
+  start (`tests/copy.test.ts`).
 - **Captions setting:** on by default (lines and short prompts). Full captions
   swap in prompts that explain each step at length. Off leaves the pictograms and
   title cards.

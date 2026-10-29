@@ -56,11 +56,17 @@ describe('copy: line breaks', () => {
     for (const [id, text] of [...lines, ...prompts, ...captions]) expect(danglingBreaks(text), id).toEqual([]);
   });
 
+  // About 24 characters fit a ribbon row at full size; the few lines whose
+  // phrase breaks need longer rows render slightly smaller (to 29 characters).
+  const WIDE_OK = new Set(['P3', 'II4', 'F1']);
+  // Two rows at most where a taller ribbon would meet the scene: the hub's
+  // emblems, the finale's flitting and departing bird, and its last line.
+  const TWO_ROWS = new Set(['H1', 'H2', 'H3', 'F1', 'F3', 'F4', 'F5', 'P2']);
   it('long lines are broken by hand, and no row is too long for the ribbon', () => {
     for (const [id, text] of lines) {
-      if (text.length > 28) expect(text, id).toContain('\n');
-      for (const row of text.split('\n')) expect(row.length, `${id}: ${row}`).toBeLessThanOrEqual(35);
-      expect(text.split('\n').length, id).toBeLessThanOrEqual(2);
+      if (text.length > 24) expect(text, id).toContain('\n');
+      for (const row of text.split('\n')) expect(row.length, `${id}: ${row}`).toBeLessThanOrEqual(WIDE_OK.has(id) ? 29 : 24);
+      expect(text.split('\n').length, id).toBeLessThanOrEqual(TWO_ROWS.has(id) ? 2 : 3);
     }
     for (const [id, text] of prompts) {
       // small caps: about 17 characters fit a row at full size (19 at a slight shrink)

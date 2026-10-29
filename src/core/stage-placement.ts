@@ -140,22 +140,29 @@ export const DEFAULT_PLACEMENT: PlacementOptions = {
   sizeScale: 1,
 };
 
+/**
+ * The smallest wall stage worth having, as a fraction of the paper scroll's
+ * angular height (smaller than this and the scroll is the better stage).
+ */
+export const MIN_STAGE_FRACTION = 0.45;
+
 /** Normalises runtime labels ('WALL_FACE', 'wall', 'Wall Art') to 'wallface' etc. */
 export function normalizeLabel(label: string | undefined | null): string {
   return (label ?? '').toLowerCase().replace(/[^a-z]/g, '');
 }
 
 const WALL_LABELS = new Set(['wall', 'wallface', '', 'other', 'unknown', 'global']);
-/** Things a stage should avoid covering. */
-const OBSTACLE_LABELS = new Set([
-  'window',
-  'windowframe',
-  'door',
-  'doorframe',
-  'screen',
-  'wallart',
-  'invisiblewallface',
-]);
+/**
+ * What blocks a spot on a wall: a shadow can't fall on a screen, a window, a
+ * mirror or open shelving, nor where there is no wall at all (an invisible
+ * wall face is an opening). Doors, framed wall art and cupboard fronts are
+ * fine surfaces (a real shadow falls on them perfectly well; at most a little
+ * contrast is lost), so they cost only a little.
+ */
+const BLOCKING_LABELS = new Set(['window', 'windowframe', 'screen', 'mirror', 'shelf', 'invisiblewallface']);
+const SURFACE_OK_LABELS = new Set(['door', 'doorframe', 'wallart', 'storage', 'cabinet', 'cupboard']);
+/** Tall furniture whose front is a fine surface when it stands against the wall. */
+const FRONT_OK_LABELS = new Set(['storage', 'cabinet', 'cupboard', 'wallart', 'door']);
 const SURFACE_LABELS = new Set(['table', 'desk', 'other', '', 'unknown', 'storage', 'shelf']);
 
 interface Rect {
@@ -234,6 +241,8 @@ export function chooseStage(
   // in front, at the most comfortable distance), not whichever came last
   let rejected = 'no-wall-in-front';
   let rejectedPromise = -Infinity;
+  /** What covered the most promising wall when it was rejected as covered (diagnostics). */
+  let blockersSeen = '';
   let promise = 0;
   const reject = (why: string): void => {
     if (promise > rejectedPromise) {
@@ -321,15 +330,23 @@ export function chooseStage(
       reject('wall-occluded');
       continue;
     }
-    // Obstacles on this wall (windows, doors, TVs, art).
+    // On this wall: what blocks a spot (windows, screens, mirrors, shelving,
+    // openings) and what only costs a little contrast (doors, art, cupboards).
     const wallRects: Rect[] = [];
+    const wallLabels: string[] = [];
+    const softRects: Rect[] = [];
     for (const other of planes) {
       if (other === plane) continue;
-      if (!OBSTACLE_LABELS.has(normalizeLabel(other.label))) continue;
+      const ol = normalizeLabel(other.label);
+      const blocks = BLOCKING_LABELS.has(ol);
+      if (!blocks && !SURFACE_OK_LABELS.has(ol)) continue;
       const rel = new V3();
       sub(rel, other.points[0], hit);
       if (Math.abs(dot(rel, n)) > 0.25) continue; // not on this wall
-      wallRects.push(extentsOnFrame(other.points, hit, right, up));
+      if (blocks) {
+        wallRects.push(extentsOnFrame(other.points, hit, right, up));
+        wallLabels.push(ol);
+      } else softRects.push(extentsOnFrame(other.points, hit, right, up));
     }
     // Tall furniture in front of the wall (monitors, shelves) near eye level
     // covers part of it: project its box onto the wall as a hard keep-out area
@@ -339,6 +356,16 @@ export function chooseStage(
       const label = normalizeLabel(o.label);
       if (label === 'globalmesh' || label === 'wallface' || label === 'floor' || label === 'ceiling') continue;
       if (o.max.y < head.y - 0.15) continue;
+      // a cupboard standing against the wall: its front is a fine surface
+      if (FRONT_OK_LABELS.has(label)) {
+        let far = Infinity;
+        for (const x of [o.min.x, o.max.x])
+          for (const z of [o.min.z, o.max.z]) {
+            const rel = new V3(x - hit.x, 0, z - hit.z);
+            far = Math.min(far, Math.abs(dot(rel, n)));
+          }
+        if (far < 0.12) continue;
+      }
       const pts: V3[] = [];
       for (const x of [o.min.x, o.max.x])
         for (const y of [o.min.y, o.max.y])
@@ -358,7 +385,8 @@ export function chooseStage(
     // a smaller stage in the free part beside or above it.
     let localBest = null as { score: number; r: number; u: number; overlap: number; k: number } | null;
     let anyPos = false;
-    for (const k of [1, 0.8, 0.65]) {
+    let offAxisOnly = false;
+    for (const k of [1, 0.8, 0.65, 0.5]) {
       const w = W * k;
       const h = H * k;
       const uMin = Math.max(wall.u0 + margin + h / 2, floorU + h / 2);
@@ -369,19 +397,27 @@ export function chooseStage(
       if (rMin > rMax + 1e-6) continue;
       anyPos = true;
       const pu = Math.max(-0.1, floorU + h / 2);
-      for (const dr of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8]) {
+      for (const dr of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8, -1.2, 1.2]) {
         for (const du of [0, 0.12, 0.24, -0.1]) {
           const r = clamp(dr, rMin, rMax);
+          // never too far off to the side of the gaze
+          if ((Math.atan2(Math.abs(r), D) * 180) / Math.PI > 30) {
+            offAxisOnly = true;
+            continue;
+          }
           const u = clamp(pu + du, uMin, uMax);
           // never uncomfortably high: the stage's top at most 30 degrees above the eye
           if (u + h / 2 > Math.tan((30 * Math.PI) / 180) * L) continue;
           const rect: Rect = { r0: r - w / 2, r1: r + w / 2, u0: u - h / 2, u1: u + h / 2 };
           let hidden = 0;
           for (const o of furnitureRects) hidden += overlapArea(rect, o);
-          if (hidden / (w * h) > 0.02) continue;
+          if (hidden / (w * h) > 1e-4) continue;
           let overlap = 0;
           for (const o of wallRects) overlap += overlapArea(rect, o);
           overlap /= w * h;
+          let soft = 0;
+          for (const o of softRects) soft += overlapArea(rect, o);
+          soft /= w * h;
           // Off-gaze shift costs comfort; covering windows costs legibility; a
           // smaller stage costs a little presence.
           const shiftAngle = Math.atan2(Math.abs(r), D);
@@ -389,7 +425,8 @@ export function chooseStage(
             2 * facing -
             0.55 * Math.abs(D - opts.preferredDistance) -
             1.6 * shiftAngle -
-            3 * overlap +
+            3 * overlap -
+            0.25 * soft +
             (label === 'wall' || label === 'wallface' ? 0.3 : 0) -
             0.4 * Math.abs(u - prefU) -
             1.2 * (1 - k);
@@ -399,23 +436,19 @@ export function chooseStage(
       if (localBest && localBest.overlap < 0.08) break;
     }
     if (!anyPos || !localBest) {
-      reject('wall-occluded');
+      reject(offAxisOnly && anyPos ? 'wall-off-axis' : 'wall-occluded');
       continue;
     }
     if (localBest.overlap > 0.35) {
       reject('wall-covered');
-      continue;
-    }
-    const lateralAngleDeg = (Math.atan2(Math.abs(localBest.r), D) * 180) / Math.PI;
-    if (lateralAngleDeg > 30) {
-      reject('wall-off-axis');
+      if (promise >= rejectedPromise) blockersSeen = wallLabels.join(',');
       continue;
     }
     H *= localBest.k;
     W *= localBest.k;
     // shrunk too far (a small wall, furniture, a busy wall, all at once)? The
     // paper scroll is the better stage than a sliver.
-    if (2 * Math.atan(H / 2 / L) < 0.6 * 2 * (((opts.verticalHalfAngleDeg + 2) * Math.PI) / 180)) {
+    if (2 * Math.atan(H / 2 / L) < MIN_STAGE_FRACTION * 2 * (((opts.verticalHalfAngleDeg + 2) * Math.PI) / 180)) {
       reject('wall-too-small');
       continue;
     }
@@ -439,7 +472,10 @@ export function chooseStage(
       };
     }
   }
-  return best ?? scrollPlacement(head, forward, opts, rejected, scrollLimit);
+  if (best) return best;
+  const scroll = scrollPlacement(head, forward, opts, rejected, scrollLimit);
+  if (blockersSeen && rejected === 'wall-covered') scroll.reason = `wall-covered:${blockersSeen}`;
+  return scroll;
 }
 
 /**

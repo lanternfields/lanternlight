@@ -128,7 +128,7 @@ export function writeJSON(name, data) {
  * height, with the storyteller's bands (above the light and under the
  * stage) still in frame. Never used for headset play.
  */
-export async function aimAtStage(page, { fill = 0.67, centreT = -0.1 } = {}) {
+export async function aimAtStage(page, { fill = 0.67, centreT = -0.06 } = {}) {
   await page.waitForFunction(() => {
     const app = window.__lantern.app;
     return !!app.placement && !app.replacePending;
