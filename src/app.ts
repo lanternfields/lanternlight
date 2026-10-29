@@ -8,7 +8,7 @@
  *   step()          placement -> ShadowModel.build -> Story.update ->
  *                   ShadowStage render -> composite/dim/lantern/text -> audio
  */
-import { Matrix4, Quaternion, Vector3, VisibilityState, World } from '@iwsdk/core';
+import { Matrix4, Quaternion, ShaderMaterial, Vector3, VisibilityState, World } from '@iwsdk/core';
 import { AudioEngine } from './audio/audio-engine.js';
 import { HandFrame, JOINT_COUNT, createHandFrame } from './core/hand-model.js';
 import { V3 } from './core/math.js';
@@ -37,7 +37,7 @@ import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
 import { StageText } from './render/stage-text.js';
 import { easeInCubic, easeOutCubic } from './core/ease.js';
 import { CaptureProps } from './render/capture-props.js';
-import { HandStandIns } from './render/hand-stand-in.js';
+import { HandOccluder, HandStandIns } from './render/hand-stand-in.js';
 import { TextLabel } from './render/text.js';
 import { LanternMenu, MenuAction } from './render/lantern-menu.js';
 import { RodPuppetVisual } from './render/rod-puppet.js';
@@ -114,6 +114,9 @@ export class App {
   private lineLeaving = false;
   /** Lantern-lit stand-ins for your hands where passthrough can't show them. */
   readonly standIns = new HandStandIns();
+  /** Mixed reality: the real hands' depth, so no virtual layer paints over them. */
+  private readonly occluder = new HandOccluder();
+  private occluding = false;
   readonly props = new CaptureProps();
   private readonly tmpBase = new Vector3();
   private readonly flameW = new Vector3();
@@ -217,6 +220,7 @@ export class App {
     add(this.hud.mesh);
     add(this.theatre.group);
     add(this.standIns.group);
+    add(this.occluder.group);
     add(this.props.group);
     add(this.spark.group);
     const grips = world.playerSpaceEntities.gripSpaces;
@@ -756,6 +760,16 @@ export class App {
     this.standIns.material.uniforms.uKey.value = this.capture && this.emulated ? 1 : 0;
     this.standIns.material.uniforms.uFade.value = this.capture && this.emulated ? this.standInFade : 1;
     this.standIns.update(showStandIns, this.hands, this.flameW, view.flame, mask ? fr : null, this.head);
+    // passthrough: the real hands occlude the stage, the captions and the lantern
+    const occlude = this.session.mode === 'ar' && !this.emulated;
+    this.occluder.update(occlude, this.hands, this.head);
+    if (occlude !== this.occluding) {
+      this.occluding = occlude;
+      for (const t of [this.banner, this.promptText, this.titleText]) {
+        (t.mesh.material as ShaderMaterial).depthTest = occlude;
+        (t.mesh.material as ShaderMaterial).needsUpdate = true;
+      }
+    }
     // recordings: a little table under a floating lantern (never on a headset)
     {
       const g = this.lantern.group.position;

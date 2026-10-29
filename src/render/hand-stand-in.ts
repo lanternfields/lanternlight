@@ -119,7 +119,16 @@ class StandInHand {
   private readonly armRadAttr = new InstancedBufferAttribute(this.armRad, 2);
   private readonly radAttr = new InstancedBufferAttribute(this.rad, 2);
 
-  constructor(material: ShaderMaterial, boneMaterial: ShaderMaterial) {
+  /**
+   * @param inflate radius multiplier (the depth occluder is a little fatter
+   * than the tracked hand, so latency never lets a virtual layer nick it)
+   */
+  constructor(
+    material: ShaderMaterial,
+    boneMaterial: ShaderMaterial,
+    private readonly inflate = 1,
+    renderOrder = 0,
+  ) {
     this.joints = new InstancedMesh(new SphereGeometry(1, 20, 14), material, 25);
     const bone = new CylinderGeometry(1, 1, 1, 20, 1, true);
     this.radAttr.setUsage(35048);
@@ -130,10 +139,11 @@ class StandInHand {
     const armGeo = new CylinderGeometry(1, 1, 1, 20, 1, true);
     armGeo.setAttribute('iRad', this.armRadAttr);
     this.arm = new InstancedMesh(armGeo, boneMaterial, 1);
-    this.armRad[0] = 0.034; // elbow (cylinder bottom)
-    this.armRad[1] = 0.026; // wrist (top)
+    this.armRad[0] = 0.034 * inflate; // elbow (cylinder bottom)
+    this.armRad[1] = 0.026 * inflate; // wrist (top)
     for (const im of [this.joints, this.bones, this.palm, this.arm]) {
       im.frustumCulled = false;
+      im.renderOrder = renderOrder;
       this.group.add(im);
     }
   }
@@ -144,7 +154,7 @@ class StandInHand {
     this.updateArm(hand, head);
     const j = hand.joints;
     for (let i = 0; i < 25; i++) {
-      const r = hand.radii[i];
+      const r = hand.radii[i] * this.inflate;
       this.m.makeScale(r, r, r).setPosition(j[i].x, j[i].y, j[i].z);
       this.joints.setMatrixAt(i, this.m);
     }
@@ -160,8 +170,8 @@ class StandInHand {
       this.s.set(1, len, 1);
       this.a.add(this.b).multiplyScalar(0.5);
       this.m.compose(this.a, this.q, this.s);
-      this.rad[n * 2] = hand.radii[ia];
-      this.rad[n * 2 + 1] = hand.radii[ib];
+      this.rad[n * 2] = hand.radii[ia] * this.inflate;
+      this.rad[n * 2 + 1] = hand.radii[ib] * this.inflate;
       this.bones.setMatrixAt(n++, this.m);
     }
     this.bones.count = n;
@@ -179,7 +189,7 @@ class StandInHand {
     const ez = this.ez.crossVectors(ex, ey).normalize();
     ex.crossVectors(ey, ez).normalize();
     this.m.makeBasis(ex, ey, ez);
-    this.m.scale(this.s.set(across * 0.62, len * 0.56, 0.014));
+    this.m.scale(this.s.set(across * 0.62 * this.inflate, len * 0.56 * this.inflate, 0.014 * this.inflate));
     this.a.add(this.b).multiplyScalar(0.5);
     this.m.setPosition(this.a);
     this.palm.setMatrixAt(0, this.m);
@@ -272,3 +282,45 @@ export class HandStandIns {
     for (let i = 0; i < 2; i++) this.hands[i].update(hands[i], head);
   }
 }
+
+/**
+ * Your real hand, as depth only (mixed reality): drawn before the stage, the
+ * captions and the lantern, it writes the tracked hand's depth and no colour,
+ * so no virtual layer ever paints over your real hand in passthrough. Your
+ * hand then reads as a dim, backlit silhouette against the lamplit wall, as a
+ * shadow-puppeteer's hand does. (The room dimming still covers it.)
+ */
+export class HandOccluder {
+  readonly group = new Group();
+  private readonly material = new ShaderMaterial({
+    vertexShader: VERT,
+    fragmentShader: DEPTH_ONLY,
+    colorWrite: false,
+    depthWrite: true,
+    depthTest: true,
+  });
+  private readonly boneMaterial = new ShaderMaterial({
+    vertexShader: BONE_VERT,
+    fragmentShader: DEPTH_ONLY,
+    colorWrite: false,
+    depthWrite: true,
+    depthTest: true,
+  });
+  private readonly hands = [
+    new StandInHand(this.material, this.boneMaterial, 1.12, -50),
+    new StandInHand(this.material, this.boneMaterial, 1.12, -50),
+  ];
+
+  constructor() {
+    for (const h of this.hands) this.group.add(h.group);
+    this.group.visible = false;
+  }
+
+  update(active: boolean, hands: readonly HandFrame[], head: { x: number; y: number; z: number }): void {
+    this.group.visible = active;
+    if (!active) return;
+    for (let i = 0; i < 2; i++) this.hands[i].update(hands[i], head);
+  }
+}
+
+const DEPTH_ONLY = /* glsl */ `void main() { gl_FragColor = vec4(0.0); }`;
