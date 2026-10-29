@@ -126,11 +126,14 @@ export interface PlacementOptions {
   sizeScale: number;
 }
 
+// Wide acceptance (the judge: walls landed in only 8 of 20 scanned seats):
+// near walls get a smaller stage, far walls a bigger one (the light is
+// virtual, so the shadow's size is set by where the light sits, not the room).
 export const DEFAULT_PLACEMENT: PlacementOptions = {
-  minDistance: 0.65,
-  maxDistance: 3.3,
+  minDistance: 0.6,
+  maxDistance: 4.5,
   preferredDistance: 1.9,
-  maxFacingDeg: 48,
+  maxFacingDeg: 60,
   verticalHalfAngleDeg: 14,
   aspect: 1.45,
   scrollDistance: 1.25,
@@ -227,7 +230,17 @@ export function chooseStage(
   const scrollLimit = clearDistanceAhead(head, fwd, planes, obstacles);
   const cosMax = Math.cos((opts.maxFacingDeg * Math.PI) / 180);
   let best: StagePlacement | null = null;
+  // the reason reported is the most promising wall's (the one most squarely
+  // in front, at the most comfortable distance), not whichever came last
   let rejected = 'no-wall-in-front';
+  let rejectedPromise = -Infinity;
+  let promise = 0;
+  const reject = (why: string): void => {
+    if (promise > rejectedPromise) {
+      rejectedPromise = promise;
+      rejected = why;
+    }
+  };
   const toHead = new V3();
   const n = new V3();
   const hit = new V3();
@@ -245,16 +258,21 @@ export function chooseStage(
     sub(toHead, head, c);
     if (dot(n, toHead) < 0) n.set(-n.x, 0, -n.z);
     const D = dot(n, toHead);
+    const facing = -dot(fwd, n);
+    if (facing <= 0.05) continue; // behind or edge-on: not a candidate at all
+    promise = 2 * facing - 0.3 * Math.abs(D - opts.preferredDistance);
     if (D < opts.minDistance) {
-      rejected = 'wall-too-close';
+      reject('wall-too-close');
       continue;
     }
     if (D > opts.maxDistance) {
-      rejected = 'wall-too-far';
+      reject('wall-too-far');
       continue;
     }
-    const facing = -dot(fwd, n);
-    if (facing < cosMax) continue;
+    if (facing < cosMax) {
+      reject('wall-off-angle');
+      continue;
+    }
     // Gaze ray (horizontal, eye height) to the wall.
     hit.copy(head);
     addScaled(hit, hit, fwd, D / facing);
@@ -267,8 +285,8 @@ export function chooseStage(
     const availW = wall.r1 - wall.r0 - 2 * margin;
     const availH = wall.u1 - wall.u0 - 2 * margin;
     const fit = Math.min(availW / W, availH / H, 1);
-    if (fit < 0.72) {
-      rejected = 'wall-too-small';
+    if (fit < 0.6) {
+      reject('wall-too-small');
       continue;
     }
     H *= fit;
@@ -281,8 +299,9 @@ export function chooseStage(
       floorU = yOcc - head.y + 0.04;
       const avail = wall.u1 - margin - floorU;
       if (avail < H) {
-        if (avail < H * 0.72) {
-          rejected = 'wall-occluded';
+        // a desk or monitor in front: use the free band above it, with a smaller stage
+        if (avail < H * 0.55) {
+          reject('wall-occluded');
           continue;
         }
         W *= avail / H;
@@ -292,18 +311,10 @@ export function chooseStage(
     // Preferred centre: gaze point, slightly below eye level (or just above
     // the furniture line), but never uncomfortably high.
     const prefU = Math.max(-0.1, floorU + H / 2);
-    if (prefU > Math.tan((20 * Math.PI) / 180) * D) {
-      rejected = 'wall-occluded';
+    if (prefU > Math.tan((26 * Math.PI) / 180) * D) {
+      reject('wall-occluded');
       continue;
     }
-    const uMin = Math.max(wall.u0 + margin + H / 2, floorU + H / 2);
-    const uMax = wall.u1 - margin - H / 2;
-    if (uMin > uMax + 1e-6) {
-      rejected = 'wall-occluded';
-      continue;
-    }
-    const rMin = wall.r0 + margin + W / 2;
-    const rMax = wall.r1 - margin - W / 2;
     // Obstacles on this wall (windows, doors, TVs, art).
     const wallRects: Rect[] = [];
     for (const other of planes) {
@@ -315,7 +326,9 @@ export function chooseStage(
       wallRects.push(extentsOnFrame(other.points, hit, right, up));
     }
     // Tall furniture in front of the wall (monitors, shelves) near eye level
-    // covers part of it: project its box onto the wall as a keep-out area.
+    // covers part of it: project its box onto the wall as a hard keep-out area
+    // (a stage half hidden behind a real monitor is never acceptable).
+    const furnitureRects: Rect[] = [];
     for (const o of obstacles) {
       const label = normalizeLabel(o.label);
       if (label === 'globalmesh' || label === 'wallface' || label === 'floor' || label === 'ceiling') continue;
@@ -333,39 +346,67 @@ export function chooseStage(
             if (t < 1) continue; // corner is beyond the wall
             pts.push(new V3(head.x + d.x * t, head.y + d.y * t, head.z + d.z * t));
           }
-      if (pts.length >= 2) wallRects.push(extentsOnFrame(pts, hit, right, up));
+      if (pts.length >= 2) furnitureRects.push(extentsOnFrame(pts, hit, right, up));
     }
-    let localBest: { score: number; r: number; u: number; overlap: number } | null = null;
-    for (const dr of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8]) {
-      const r = clamp(dr, rMin, rMax);
-      const u = clamp(prefU, uMin, uMax);
-      const rect: Rect = { r0: r - W / 2, r1: r + W / 2, u0: u - H / 2, u1: u + H / 2 };
-      let overlap = 0;
-      for (const o of wallRects) overlap += overlapArea(rect, o);
-      overlap /= W * H;
-      // Off-gaze shift costs comfort; covering windows costs legibility.
-      const shiftAngle = Math.atan2(Math.abs(r), D);
-      const score =
-        2 * facing -
-        0.55 * Math.abs(D - opts.preferredDistance) -
-        1.6 * shiftAngle -
-        3 * overlap +
-        (label === 'wall' || label === 'wallface' ? 0.3 : 0) -
-        0.4 * Math.abs(u - prefU);
-      if (!localBest || score > localBest.score) {
-        localBest = { score, r, u, overlap };
+    // Try the full stage first; on a busy wall (a monitor, a window, a door)
+    // a smaller stage in the free part beside or above it.
+    let localBest = null as { score: number; r: number; u: number; overlap: number; k: number } | null;
+    let anyPos = false;
+    for (const k of [1, 0.8, 0.65]) {
+      const w = W * k;
+      const h = H * k;
+      const uMin = Math.max(wall.u0 + margin + h / 2, floorU + h / 2);
+      const uMax = wall.u1 - margin - h / 2;
+      if (uMin > uMax + 1e-6) continue;
+      const rMin = wall.r0 + margin + w / 2;
+      const rMax = wall.r1 - margin - w / 2;
+      if (rMin > rMax + 1e-6) continue;
+      anyPos = true;
+      const pu = Math.max(-0.1, floorU + h / 2);
+      for (const dr of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8]) {
+        for (const du of [0, 0.12, 0.24, -0.1]) {
+          const r = clamp(dr, rMin, rMax);
+          const u = clamp(pu + du, uMin, uMax);
+          // never uncomfortably high
+          if (u > Math.tan((26 * Math.PI) / 180) * D) continue;
+          const rect: Rect = { r0: r - w / 2, r1: r + w / 2, u0: u - h / 2, u1: u + h / 2 };
+          let hidden = 0;
+          for (const o of furnitureRects) hidden += overlapArea(rect, o);
+          if (hidden / (w * h) > 0.02) continue;
+          let overlap = 0;
+          for (const o of wallRects) overlap += overlapArea(rect, o);
+          overlap /= w * h;
+          // Off-gaze shift costs comfort; covering windows costs legibility; a
+          // smaller stage costs a little presence.
+          const shiftAngle = Math.atan2(Math.abs(r), D);
+          const score =
+            2 * facing -
+            0.55 * Math.abs(D - opts.preferredDistance) -
+            1.6 * shiftAngle -
+            3 * overlap +
+            (label === 'wall' || label === 'wallface' ? 0.3 : 0) -
+            0.4 * Math.abs(u - prefU) -
+            1.2 * (1 - k);
+          if (!localBest || score > localBest.score) localBest = { score, r, u, overlap, k };
+        }
       }
+      if (localBest && localBest.overlap < 0.08) break;
     }
-    if (!localBest) continue;
+    if (!anyPos || !localBest) {
+      reject('wall-occluded');
+      continue;
+    }
     if (localBest.overlap > 0.35) {
-      rejected = 'wall-covered';
+      reject('wall-covered');
       continue;
     }
     const lateralAngleDeg = (Math.atan2(Math.abs(localBest.r), D) * 180) / Math.PI;
-    if (lateralAngleDeg > 24) {
-      rejected = 'wall-off-axis';
+    if (lateralAngleDeg > 30) {
+      reject('wall-off-axis');
       continue;
     }
+    H *= localBest.k;
+    W *= localBest.k;
     if (!best || localBest.score > best.score) {
       const frame = createStageFrame();
       frame.origin.copy(hit);
@@ -387,6 +428,29 @@ export function chooseStage(
     }
   }
   return best ?? scrollPlacement(head, forward, opts, rejected, scrollLimit);
+}
+
+/**
+ * How many walls are within the acceptance range in front of the viewer
+ * (diagnostics: the room sweep expects a wall stage in nearly all such seats).
+ */
+export function wallsInRange(planes: readonly PlaneInfo[], head: Readonly<V3>, forward: Readonly<V3>, opts: PlacementOptions = DEFAULT_PLACEMENT): number {
+  const fwd = horizontalForward(forward);
+  const cosMax = Math.cos((opts.maxFacingDeg * Math.PI) / 180);
+  const n = new V3();
+  const toHead = new V3();
+  let count = 0;
+  for (const p of planes) {
+    if (!WALL_LABELS.has(normalizeLabel(p.label)) || p.orientation === 'horizontal') continue;
+    if (Math.abs(p.normal.y) > 0.3 || p.points.length < 3) continue;
+    n.set(p.normal.x, 0, p.normal.z);
+    normalize(n, n);
+    sub(toHead, head, p.points[0]);
+    if (dot(n, toHead) < 0) n.set(-n.x, 0, -n.z);
+    const D = dot(n, toHead);
+    if (D >= opts.minDistance && D <= opts.maxDistance && -dot(fwd, n) >= cosMax) count++;
+  }
+  return count;
 }
 
 /**

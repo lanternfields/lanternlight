@@ -24,11 +24,13 @@ import {
   chooseLantern,
   chooseStage,
   surfacesInReach,
+  wallsInRange,
   DEFAULT_PLACEMENT,
 } from './core/stage-placement.js';
 import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
 import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT, StageView, SilhouetteBox, silhouettes } from './core/story.js';
 import { LanternSpark } from './render/spark.js';
+import { COPY } from './core/copy.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
 import { STAGE_PAD, ShadowStage } from './render/shadow-stage.js';
@@ -161,6 +163,11 @@ export class App {
   private placementLockedAt = -1;
   private lastFrameAt = 0;
   private sessionTime = 0;
+  /** Room capture (Quest Space Setup from inside the session) is offered once per session. */
+  private roomCaptureAsked = false;
+  /** A one-line notice under the stage ('' = none) and how long it stays (s). */
+  private notice = '';
+  private noticeTime = 0;
   private saveTimer = 0;
   private readonly store = browserStore();
 
@@ -286,6 +293,8 @@ export class App {
     this.session.mode = blend === 'opaque' ? 'vr' : 'ar';
     this.session.features = [...((session as XRSession & { enabledFeatures?: string[] })?.enabledFeatures ?? [])];
     this.session.planesSeen = 0;
+    this.roomCaptureAsked = false;
+    this.noticeTime = 0;
     this.session.meshesSeen = 0;
     this.hitWall = null;
     this.hitSource = undefined;
@@ -456,6 +465,30 @@ export class App {
     if (this.hands[1].tracked) this.tried.right = true;
     if (anyController) this.tried.controllers = true;
     this.capturePlanes(frame, ref, pm);
+  }
+
+  /**
+   * No room scan (Space Setup) on this headset, or not for this room: about
+   * 3 s into the session, with still no planes, Quest's room capture is
+   * started from inside the session, once, behind a one-line notice. When the
+   * viewer comes back with their walls and tables, the stage is placed again.
+   */
+  private maybeCaptureRoom(): void {
+    if (this.roomCaptureAsked || this.session.mode !== 'ar' || this.capture) return;
+    if (this.sessionTime < 3 || this.session.planesSeen > 0) return;
+    const s = this.world.session as (XRSession & { initiateRoomCapture?: () => Promise<void> }) | undefined;
+    if (!s || typeof s.initiateRoomCapture !== 'function') return;
+    this.roomCaptureAsked = true;
+    this.notice = COPY.NOTICE_ROOM;
+    this.noticeTime = 6;
+    try {
+      s.initiateRoomCapture().then(
+        () => this.requestReplace(),
+        () => undefined,
+      );
+    } catch {
+      /* not available here */
+    }
   }
 
   /** Gaze hit-test: a fallback way to find a wall when there is no room scan. */
@@ -641,6 +674,8 @@ export class App {
     this.lastFrameAt = t0;
     if (this.phase === 'landing' || this.phase === 'paused') return;
     this.sessionTime += dt;
+    this.noticeTime = Math.max(0, this.noticeTime - dt);
+    this.maybeCaptureRoom();
 
     if (this.phase === 'placing') {
       this.placingTime += dt;
@@ -882,9 +917,15 @@ export class App {
     if (this.banner.mesh.visible) this.placeText(this.banner, fr, RIBBON_SPOTS[0], RIBBON_SPOTS[1]);
     // prompt: a few small-caps words under the stage, below the pictogram
     const prompt = !words ? '' : this.settings.fullCaptions ? tv.promptFull || tv.prompt : tv.prompt;
-    this.promptText.set(prompt);
-    const pa = tv.promptAlpha;
-    this.promptText.show(pa * pa * (3 - 2 * pa) * vis);
+    if (this.noticeTime > 0) {
+      // a system notice (room capture) takes the prompt's place for a moment
+      this.promptText.set(this.notice);
+      this.promptText.show(Math.min(1, this.noticeTime / 0.4, (6 - this.noticeTime) / 0.4));
+    } else {
+      this.promptText.set(prompt);
+      const pa = tv.promptAlpha;
+      this.promptText.show(pa * pa * (3 - 2 * pa) * vis);
+    }
     if (this.promptText.mesh.visible) this.placeText(this.promptText, fr, 0, -0.6 - this.promptText.heightUnits * 0.42);
     // title: small caps above the emblem ring, timed with the card
     this.titleText.set(tv.title);
@@ -1177,6 +1218,7 @@ export class App {
           }
         : null,
       planes: this.planes.length,
+      wallsInRange: wallsInRange(this.planes, this.head, this.headForward),
       obstacles: this.obstacles.map((o) => o.label),
       planeLabels: this.planes.map((pl) => pl.label + '/' + pl.orientation),
       actors: this.model.actors.map((a) => ({

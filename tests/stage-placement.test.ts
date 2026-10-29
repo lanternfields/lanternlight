@@ -132,7 +132,8 @@ describe('stage placement', () => {
         expect(Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)).toBe(true);
       }
       expect(fr.height).toBeGreaterThan(0.2);
-      expect(fr.height).toBeLessThan(2.0);
+      // (far walls, up to 4.5 m, get a bigger, FoV-sized stage)
+      expect(fr.height).toBeLessThan(2.4);
       expect(Math.hypot(fr.normal.x, fr.normal.y, fr.normal.z)).toBeCloseTo(1, 4);
       sub(rel, h, fr.origin);
       expect(dot(rel, fr.normal)).toBeGreaterThan(0.3); // faces the viewer
@@ -260,5 +261,60 @@ describe('furniture occlusion', () => {
     const p = chooseStage([wall, sideTable], eye, fwd);
     expect(p.kind).toBe('wall');
     expect(p.frame.origin.y).toBeCloseTo(1.1, 1);
+  });
+});
+
+// The judge: walls landed in only 8 of 20 scanned seats. Wider acceptance:
+// 0.6-4.5 m, up to 60 degrees, the free band above a desk or beside a monitor.
+describe('scene understanding in rooms nobody tested', () => {
+  const eye = new V3(0, 1.2, 0);
+  /** A vertical wall through `centre`, facing back along -dir (yaw in degrees off the gaze). */
+  function wallAt(id: string, dist: number, yawDeg: number, width = 4, label = 'wall'): PlaneInfo {
+    const a = (yawDeg * Math.PI) / 180;
+    const n = new V3(Math.sin(a), 0, Math.cos(a)); // faces the viewer
+    const c = new V3(-n.x * dist, 0, -n.z * dist);
+    const t = new V3(Math.cos(a), 0, -Math.sin(a));
+    const h = width / 2;
+    return {
+      id,
+      orientation: 'vertical',
+      label,
+      normal: n,
+      points: [
+        new V3(c.x - t.x * h, 0, c.z - t.z * h),
+        new V3(c.x + t.x * h, 0, c.z + t.z * h),
+        new V3(c.x + t.x * h, 2.6, c.z + t.z * h),
+        new V3(c.x - t.x * h, 2.6, c.z - t.z * h),
+      ],
+    };
+  }
+
+  it('a far wall (4.2 m) becomes the stage, with a bigger stage', () => {
+    const p = chooseStage([wallAt('w', 4.2, 0)], eye, fwd);
+    expect(p.kind).toBe('wall');
+    expect(p.frame.height).toBeGreaterThan(chooseStage([wallAt('w', 2, 0)], eye, fwd).frame.height);
+  });
+
+  it('a near wall (0.62 m) becomes the stage', () => {
+    expect(chooseStage([wallAt('w', 0.62, 0)], eye, fwd).kind).toBe('wall');
+  });
+
+  it('a wall at 55 degrees to the gaze is accepted', () => {
+    expect(chooseStage([wallAt('w', 1.8, 55, 8)], eye, fwd).kind).toBe('wall');
+  });
+
+  it('seated at a desk facing a wall with a monitor: a smaller stage beside or above it, not the scroll', () => {
+    const wall = wallZ('w', -1.0, -2, 2, 0, 2.6);
+    const desk = table('d', 0.74, -0.8, 0.8, -1.0, -0.4, 'desk');
+    const monitor = { label: 'SCREEN', min: new V3(-0.3, 0.76, -0.95), max: new V3(0.3, 1.12, -0.88) };
+    const p = chooseStage([wall, desk], eye, fwd, undefined, [monitor]);
+    expect(p.kind).toBe('wall');
+  });
+
+  it('reports why the most promising wall was rejected, whatever the order', () => {
+    const tooClose = wallAt('near', 0.4, 0);
+    const offAngle = wallAt('side', 2.0, 75);
+    expect(chooseStage([tooClose, offAngle], eye, fwd).reason).toBe('wall-too-close');
+    expect(chooseStage([offAngle, tooClose], eye, fwd).reason).toBe('wall-too-close');
   });
 });

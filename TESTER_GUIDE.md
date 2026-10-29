@@ -31,9 +31,12 @@ you, your wall becomes a stage, and your hands cast shadows that come to life.
 2. **Run Space Setup first** (it lets the app find your walls): in *Settings*, look for
    *Physical space → Space Setup* (on some versions *Environment setup* or *Room setup*) and
    follow the steps: confirm your walls and mark your desk or table. Menu names differ between
-   headset software versions, so ask us if you can't find it. If you skip it, the show still works on a
-   paper scroll; please tell us whether you ran it.
-3. **Sit down facing a wall** 1 to 3 metres away, if you can. A desk in front of you is fine.
+   headset software versions, so ask us if you can't find it. If you skip it, a few seconds in the
+   app says *Let's find your walls* and opens the headset's own room setup; finish it and the
+   show comes back on your wall. If you cancel, the show still works on a paper scroll. Please
+   tell us whether you ran it.
+3. **Sit down facing a wall** about 0.6 to 4.5 metres away. A desk (even with a monitor) in
+   front of you is fine, and if there's a table or desk within reach the lantern sits on it.
 4. **Turn on hand tracking**: in *Settings*, find *Movement tracking* (or *Hands and controllers*) and switch hand tracking on.
 
 ## Open the test link

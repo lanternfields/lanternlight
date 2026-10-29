@@ -57,6 +57,8 @@ export interface Copy {
   CLOSER: Prompt;
   BIG: Prompt;
   FINGER: Prompt;
+  /** A one-line system notice under the stage while Quest's room capture starts. */
+  NOTICE_ROOM: string;
 }
 
 /** The script: STORY_V2.md section 3, verbatim (approved 2026-10-28). */
@@ -98,6 +100,7 @@ export const COPY: Copy = {
   BRIDGE: ['Lie flat.\nBe the bridge.', 'Hold your hand flat and sideways\nso its shadow spans the river'],
   CLOSER: ['Bring it closer to you', 'Bring your hand back toward you:\nits shadow grows bigger'],
   BIG: ['Be bigger than the wolf', 'Bring your hand back toward you,\nor raise both hands to make your shadow big'],
+  NOTICE_ROOM: "Let's find your walls",
   FINGER: ['Hold one finger\nvery still', 'Hold up one pointing finger\nand keep it still so the bird can land'],
 };
 
