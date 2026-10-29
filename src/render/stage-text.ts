@@ -36,7 +36,9 @@ interface StyleSpec {
 
 const SPECS: Record<TextStyle, StyleSpec> = {
   // italic lower case: x-height ~0.4 em -> 0.14 em gives ~0.056 stage units
-  banner: { w: 2048, h: 900, units: 1.44, em: 0.14 },
+  // two rows at most, up to ~26 characters a row at full size; wide enough that
+  // the swallowtail ends always fit (the same 1422 px per stage unit as before)
+  banner: { w: 2560, h: 720, units: 1.8, em: 0.14 },
   // small caps (~0.46 em tall) -> 0.13 em gives ~0.06 units
   prompt: { w: 2048, h: 420, units: 1.6, em: 0.125 },
   title: { w: 3072, h: 300, units: 1.5, em: 0.12 },
@@ -157,7 +159,9 @@ export class StageText {
     const { ctx, canvas } = this;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const { rows, fontPx } = this.layout(text, this.px(this.spec.em), canvas.width * 0.8, 1.45, (px) => {
+    // the text may use the canvas width less the paper margin and the tails on both sides
+    const base = this.px(this.spec.em);
+    const { rows, fontPx } = this.layout(text, base, canvas.width - 8 - 3.56 * base, 1.45, (px) => {
       ctx.font = `italic ${px}px ${FONT}`;
     });
     let tw = 0;
@@ -166,7 +170,7 @@ export class StageText {
     const bandH = rowH * rows.length + fontPx * 0.5;
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
-    const half = Math.min(canvas.width * 0.47, tw / 2 + fontPx * 0.9);
+    const half = Math.min(canvas.width / 2 - 4 - fontPx * 0.55 * 1.6, tw / 2 + fontPx * 0.9);
     const notch = fontPx * 0.55;
     const curl = fontPx * 0.16;
     const ppu = this.spec.w / this.spec.units;

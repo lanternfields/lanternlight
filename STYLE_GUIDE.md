@@ -90,11 +90,12 @@ pure black; the shapes do not change.
   visual angle in the headset): storyteller lines are 0.14 stage units of em,
   prompts 0.156.
 - **Line breaks:** authored per line ID in `src/core/copy.ts`, at phrase
-  boundaries, never re-wrapped. Rows of about 24 characters keep full size (a
-  longer row makes its whole line a little smaller). A ribbon may take three
-  rows where the scene has room for it, two in the hub (the emblems) and while
-  the finale's bird is in flight. No row ends on a short word or a sentence
-  start (`tests/copy.test.ts`).
+  boundaries, never re-wrapped, **two rows at most** (three made heavy blocks
+  over the stage). The ribbon grows wide enough for about 26 characters a row
+  at full size; a longer row makes its whole line a little smaller. No row ends
+  on a short word or a sentence start (`tests/copy.test.ts`). During payoff
+  beats (the croc's glow, the giant, the bird landing) the hand and the story's
+  characters stay clear of the ribbon.
 - **Captions setting:** on by default (lines and short prompts). Full captions
   swap in prompts that explain each step at length. Off leaves the pictograms and
   title cards.

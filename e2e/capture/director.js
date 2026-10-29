@@ -434,6 +434,10 @@
     ctl.size = 1;
     if (shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     mark('croc-fed');
+    // the payoff (the night-light drifting off, I5) plays clear of the hand
+    ctl.tau = 0.7;
+    rest();
+    setPose('relaxed', 0.9);
     yield* until(() => S().scene !== 'croc', 15);
     rest();
     // ---- Rabbit's Bridge
@@ -595,9 +599,12 @@
     rest();
     setPose('relaxed', 0.4);
     yield* until(() => !S().view.title.id, 5);
-    // the opening line reads first; then the hand comes up (above the action)
+    // the opening lines read first (III1, then III2 as the wolf comes in); then
+    // the hand comes up, so the giant never grows under the storyteller's ribbon
     yield* until(() => !!S().view.text.line, 2);
     yield* until(() => !S().view.text.line, 6);
+    yield* until(() => !!S().view.text.line, 4);
+    yield* until(() => !S().view.text.line, 7);
     setPose('open', 0.6);
     orient(60, 0, 0);
     ctl.tau = 0.4;

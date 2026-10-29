@@ -56,17 +56,17 @@ describe('copy: line breaks', () => {
     for (const [id, text] of [...lines, ...prompts, ...captions]) expect(danglingBreaks(text), id).toEqual([]);
   });
 
-  // About 24 characters fit a ribbon row at full size; the few lines whose
-  // phrase breaks need longer rows render slightly smaller (to 29 characters).
-  const WIDE_OK = new Set(['P3', 'II4', 'F1']);
-  // Two rows at most where a taller ribbon would meet the scene: the hub's
-  // emblems, the finale's flitting and departing bird, and its last line.
-  const TWO_ROWS = new Set(['H1', 'H2', 'H3', 'F1', 'F3', 'F4', 'F5', 'P2']);
-  it('long lines are broken by hand, and no row is too long for the ribbon', () => {
+  // The ribbon is two rows at most (a third row made heavy black blocks over the
+  // stage). About 26 characters fit a row at full size; a line whose only good
+  // phrase break needs a longer row renders a little smaller, never re-wrapped.
+  // III1 is the one outlier: its only break that doesn't leave a sentence start
+  // dangling is "The moon is up. Something is moving / in the tall grass…".
+  const LONG_ROW_OK: Record<string, number> = { P1: 30, II1: 30, I5: 32, F2: 31, III1: 35, P3: 28, II5: 28, II4: 27, I3: 27, F1: 29 };
+  it('long lines are broken by hand into two rows, and no row is too long for the ribbon', () => {
     for (const [id, text] of lines) {
-      if (text.length > 24) expect(text, id).toContain('\n');
-      for (const row of text.split('\n')) expect(row.length, `${id}: ${row}`).toBeLessThanOrEqual(WIDE_OK.has(id) ? 29 : 24);
-      expect(text.split('\n').length, id).toBeLessThanOrEqual(TWO_ROWS.has(id) ? 2 : 3);
+      if (text.length > 26) expect(text, id).toContain('\n');
+      for (const row of text.split('\n')) expect(row.length, `${id}: ${row}`).toBeLessThanOrEqual(LONG_ROW_OK[id] ?? 26);
+      expect(text.split('\n').length, id).toBeLessThanOrEqual(2);
     }
     for (const [id, text] of prompts) {
       // small caps: about 17 characters fit a row at full size (19 at a slight shrink)
