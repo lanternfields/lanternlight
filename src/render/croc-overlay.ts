@@ -43,7 +43,7 @@ const ARM_SCUTES: readonly number[] = [0.1, 0.24, 0.38, 0.52];
 const SCUTE_H = 0.0135;
 const SCUTE_R = 0.0075;
 /** Where the snout's clean top line starts (behind the knuckles: no step there) and ends (past the fingertips). */
-const SNOUT_U: readonly [number, number] = [-0.24, 1.16];
+const SNOUT_U: readonly [number, number] = [-0.36, 1.16];
 /** The closed-mouth smile: a zigzag of small interlocking teeth along the jaw line (head-axis u). */
 const SMILE_U: readonly [number, number] = [0.3, 1.0];
 const SMILE_TEETH = 8;
@@ -164,7 +164,9 @@ export class CrocOverlay {
     // fingertips (it fills the dips between the knuckles; its underside stays
     // inside the head), ending in a slightly bulbous nostril tip
     const slope = (tipOff - topOff) / 0.82;
-    const topAt = (u: number): number => topOff + slope * u;
+    // (forward of the knuckles the line tapers to the tip; behind them it stays
+    // a touch under the knuckle top, so the head piece adds length, not forehead)
+    const topAt = (u: number): number => (u >= 0 ? topOff + slope * u : topOff * 0.94);
     const ra = Math.min(0.02 * k, topAt(SNOUT_U[0]) * 0.55);
     const rb = Math.max(0.006 * k, Math.min(ra * 0.55, tipOff * 0.45));
     const [sax, say] = at(SNOUT_U[0], topAt(SNOUT_U[0]) - ra);
@@ -281,10 +283,14 @@ export class CrocOverlay {
         // the jaw line: under the upper jaw, turning up a little at the back (the smile)
         const seam = -0.42 * Math.max(topAt(u), 0.012 * k) + 0.012 * k * (1 - f) * (1 - f);
         const zig = (i % 2 === 0 ? 1 : -1) * 0.0075 * k * (1 - 0.3 * f);
-        const q = at(u, seam + zig);
-        const deep = model.distanceToShadow(q[0], q[1], mask) <= -0.004 * k;
-        if (prev && deep) holes.pushRaw(prev[0], prev[1], q[0], q[1], 0.0021 * k, 0.0015, smile);
-        prev = deep ? q : null;
+        // set a little inside the jaw: a point too near the edge moves up into
+        // the head, so the zigzag stays one continuous line
+        let q = at(u, seam + zig);
+        for (let j = 0; j < 8 && model.distanceToShadow(q[0], q[1], mask) > -0.006 * k; j++) {
+          q = [q[0] + px * 0.003 * k, q[1] + py * 0.003 * k];
+        }
+        if (prev) holes.pushRaw(prev[0], prev[1], q[0], q[1], 0.0021 * k, 0.0015, smile);
+        prev = q;
       }
     }
 
