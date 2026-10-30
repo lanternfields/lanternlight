@@ -255,7 +255,9 @@ export const BIRD_EXTENT: Extent = { back: 0.047 * 1.8, front: 0.041 * 1.8, heig
 /** Where the bird's beak is, from its feet (facing +x): it carries the spark there. */
 export const BIRD_BEAK: readonly [number, number] = [0.04 * 1.8, 0.045 * 1.8];
 /** The full crocodile drifting off (render/croc-art.ts): its drawing scale... */
-export const NIGHT_CROC_SCALE = 2.0;
+export const NIGHT_CROC_SCALE = 2.2;
+/** How high it floats: its water line sits this far above the river's (eye bump and ridge clear the near reeds). */
+export const NIGHT_CROC_FLOAT = 0.022;
 /** ...and its reach (head, back and tail above the water line). */
 export const NIGHT_CROC_EXTENT: Extent = { back: 0.165 * NIGHT_CROC_SCALE, front: 0.176 * NIGHT_CROC_SCALE, height: 0.066 * NIGHT_CROC_SCALE, body: 0.2 * NIGHT_CROC_SCALE };
 
@@ -366,6 +368,17 @@ export function createProgress(): Progress {
 const MAX_FIREFLIES = 5;
 const MAX_SCENERY = 16;
 export const GROUND_T = -0.36;
+/**
+ * The Hungry River's fireflies dance low, just above the water (the lower
+ * third of the stage, about level with the lantern), so the natural catching
+ * pose is a flat hand skimming the river with its snout pointing sideways: a
+ * crocodile glides, it doesn't rear. They keep left of Pip in the far-bank
+ * reeds (x <= FIREFLY_X[1]), so the crocodile never snaps next to Pip.
+ */
+export const FIREFLY_T: readonly [number, number] = [-0.3, -0.17];
+export const FIREFLY_X: readonly [number, number] = [-0.16, 0.32];
+/** Where they drift back to (the middle of the band). */
+const FIREFLY_HOME_T = (FIREFLY_T[0] + FIREFLY_T[1]) / 2;
 
 function makeCapsule(): Capsule2D {
   return { ax: 0, ay: 0, bx: 0, by: 0, r: 0, soft: 0.004, actor: -1 };
@@ -1189,10 +1202,9 @@ export class Story {
     let f: FireflyView | null = null;
     for (const x of this.view.fireflies) if (!x.alive && x.eaten === 0 && !f) f = x;
     if (!f) return;
-    // inside the lamplight, where the crocodile can be seen catching them
-    const side = this.rng() < 0.5 ? -1 : 1;
-    f.x = side * (0.24 + this.rng() * 0.14);
-    f.y = -0.15 + this.rng() * 0.17; // (below even a three-row ribbon)
+    // inside the lamplight, low over the water, where the crocodile glides to catch them
+    f.x = -0.08 + this.rng() * 0.34;
+    f.y = FIREFLY_T[0] + 0.02 + this.rng() * (FIREFLY_T[1] - FIREFLY_T[0] - 0.04);
     f.alive = true;
     f.glow = 0;
     f.eaten = 0;
@@ -1250,9 +1262,10 @@ export class Story {
     this.sinceChomp += dt;
     const stall = Math.max(this.idleNoHand, this.sinceChomp);
     const showGhost = (this.beat === 'teach' && this.beatTime > 1.5) || stall > PROMPT_PICTOGRAM_AFTER;
+    // the hint: a flat, side-on crocodile skimming the water in the firefly band
     v.ghost.pose = 'mouth';
-    v.ghost.s = 0.3;
-    v.ghost.t = 0.12;
+    v.ghost.s = 0.12;
+    v.ghost.t = FIREFLY_HOME_T;
     v.ghost.scale = 0.85;
     v.ghost.visible = approach(v.ghost.visible, showGhost && !actor ? 0.5 : showGhost ? 0.25 : 0, 2.5, dt);
     this.ask((this.beat === 'teach' || this.beat === 'feed') && stall > PROMPT_WORDS_AFTER ? COPY.SNAP : null);
@@ -1286,7 +1299,7 @@ export class Story {
         f.glow = Math.min(1, f.glow + dt * 1.5);
         const wobble = this.settings.reduceMotion ? 0.3 : 1;
         let vx = Math.sin(this.time * 0.7 + i * 2.1) * 0.05 * wobble - f.x * 0.06;
-        let vy = Math.cos(this.time * 0.9 + i * 1.3) * 0.04 * wobble - (f.y + 0.05) * 0.08;
+        let vy = Math.cos(this.time * 0.9 + i * 1.3) * 0.03 * wobble - (f.y - FIREFLY_HOME_T) * 0.1;
         if (actor && mouthOpen) {
           const d = dist2(f.x, f.y, actor.mouthS, actor.mouthT);
           if (d < attractR && d > 1e-4) {
@@ -1295,10 +1308,11 @@ export class Story {
             vy += ((actor.mouthT - f.y) / d) * pull;
           }
         }
-        // fireflies stay inside the lamplight
-        // (kept low enough that the whole crocodile chasing them stays in the light)
-        f.x = clamp(f.x + vx * dt, -0.42, 0.42);
-        f.y = clamp(f.y + vy * dt, -0.2, 0.03);
+        // fireflies stay in their band: low over the water, inside the lamplight
+        // (a little right of centre, so the crocodile's body trailing left of its
+        // mouth stays in the light, and well left of Pip)
+        f.x = clamp(f.x + vx * dt, FIREFLY_X[0], FIREFLY_X[1]);
+        f.y = clamp(f.y + vy * dt, FIREFLY_T[0], FIREFLY_T[1]);
       }
       // Chomp! A firefly is caught if it is anywhere along the open jaws
       // (recorded while the mouth was open) or near where the jaws met.
@@ -1352,7 +1366,7 @@ export class Story {
         const nl = v.nightLight;
         const from = actor ? actor.knuckleS : 0;
         nl.x = clamp(from, -0.32, Story.CROC_PIP_X - PIP_EXTENT.back * Story.CROC_PIP_SCALE - NIGHT_CROC_EXTENT.back - 0.2);
-        nl.y = v.waterY + 0.006;
+        nl.y = v.waterY + NIGHT_CROC_FLOAT;
         nl.dir = -1;
         nl.visible = 0;
         nl.glow = 1;
@@ -1372,7 +1386,7 @@ export class Story {
       this.driftV = approach(this.driftV, 0.2, 1.2, dt);
       nl.x -= this.driftV * dt;
     }
-    nl.y = this.view.waterY + 0.006;
+    nl.y = this.view.waterY + NIGHT_CROC_FLOAT;
     nl.glow = 0.85 + 0.15 * Math.sin(this.time * 2.1);
   }
 

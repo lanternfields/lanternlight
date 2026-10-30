@@ -105,6 +105,14 @@
   const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
   /** The crocodile's hand orientation (pitch, yaw, roll; IWER degrees, relative to the stage). */
   const CROC_ORIENT = Array.isArray(window.__CROC_ORIENT) ? window.__CROC_ORIENT : [70, -105, 90];
+  /**
+   * Where the crocodile's mouth works: the fireflies' band, low over the water
+   * (src/core/story.ts FIREFLY_T), about level with the lantern, so the hand
+   * is held at lantern height and its shadow lies flat along the water.
+   */
+  const CROC_T = -0.23;
+  /** The snap pose's aperture: clearly over the detector's open threshold (0.75), far from fully open. */
+  const CROC_AJAR_APERTURE = 0.92;
 
   // ---------------------------------------------------------- pose blending
   const decomp = {};
@@ -174,6 +182,38 @@
     };
     pull('thumb-phalanx-distal', 0.55);
     pull('thumb-tip', 0.86);
+  }
+  // The crocodile's snap pose for recordings: the jaw only half open (about
+  // 25-35 degrees, teeth showing), not the thumb dropped all the way. The
+  // thumb is blended from the bite toward 'crocOpen' just far enough that the
+  // app's mouth detector (aperture = thumb-to-fingertip / palm length; open at
+  // 0.75, shut at 0.42) reads it as clearly open: aperture CROC_AJAR_APERTURE.
+  {
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    const aperture = (d) =>
+      Math.min(dist(d['thumb-tip'].p, d['index-finger-tip'].p), dist(d['thumb-tip'].p, d['middle-finger-tip'].p)) /
+      Math.max(0.04, dist(d.wrist.p, d['middle-finger-phalanx-proximal'].p));
+    const bite = decomp.crocBite;
+    const open = decompose('crocOpen');
+    const mix = (w) => {
+      const out = { ...bite };
+      for (const j of THUMB) {
+        const a = bite[j];
+        const b = open[j];
+        out[j] = { q: qSlerp(a.q, b.q, w), p: [a.p[0] + (b.p[0] - a.p[0]) * w, a.p[1] + (b.p[1] - a.p[1]) * w, a.p[2] + (b.p[2] - a.p[2]) * w], r: a.r };
+      }
+      return out;
+    };
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 24; i++) {
+      const w = (lo + hi) / 2;
+      if (aperture(mix(w)) < CROC_AJAR_APERTURE) lo = w;
+      else hi = w;
+    }
+    decomp.crocAjar = mix(hi);
+    // (read back by the stills runs: the blend, its aperture, and the full open's)
+    window.__crocAjar = { w: +hi.toFixed(3), aperture: +aperture(decomp.crocAjar).toFixed(3), open: +aperture(open).toFixed(3), bite: +aperture(bite).toFixed(3) };
   }
   // One finger up (the finale's branch): a fist, the index finger straight.
   composite('pointUp', 'fist', [
@@ -543,10 +583,10 @@
     rest();
     yield* until(() => !S().view.title.id, 4);
     yield* wait(0.2);
-    setPose('crocOpen', 0.6);
+    setPose('crocAjar', 0.6);
     orient(...CROC_ORIENT);
     ctl.tau = 0.3;
-    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    shadowTo(0.02, CROC_T, { feature: 'mouth', size: 1.1 });
     yield* wait(1.6);
     ctl.tau = 0.16;
     const t0 = time;
@@ -561,7 +601,7 @@
       }
       // ...and low enough that the crocodile stays under the storyteller's band
       shadowTo(Math.max(-0.1, ff.x), Math.min(0.0, ff.y), { feature: 'mouth' });
-      setPose('crocOpen', 0.35);
+      setPose('crocAjar', 0.35);
       let tt = 0;
       while (tt < 3) {
         tt += yield;
@@ -573,7 +613,7 @@
       if (S().stats.chomps === 0) setShot('inset', 1, 0.35); // show the hand making the snap
       setPose('crocBite', 0.11);
       yield* wait(0.38);
-      setPose('crocOpen', 0.32);
+      setPose('crocAjar', 0.32);
       yield* wait(0.4);
       if (S().stats.chomps >= 2 && shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     }
@@ -695,10 +735,10 @@
     rest();
     yield* until(() => !S().view.title.id, 5);
     yield* wait(0.2);
-    setPose('crocOpen', 0.6);
+    setPose('crocAjar', 0.6);
     orient(...CROC_ORIENT);
     ctl.tau = 0.3;
-    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    shadowTo(0.02, CROC_T, { feature: 'mouth', size: 1.1 });
     yield* wait(7.5);
     mark('end');
   }
@@ -735,10 +775,10 @@
     goto('croc');
     yield* wait(1.3);
     yield* shoot('text-title-croc');
-    setPose('crocOpen', 0.6);
+    setPose('crocAjar', 0.6);
     orient(...CROC_ORIENT);
     yield* until(() => !S().view.title.id, 5);
-    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    shadowTo(0.02, CROC_T, { feature: 'mouth', size: 1.1 });
     yield* until(() => S().view.text.lineAlpha > 0.99, 5);
     yield* wait(0.8);
     yield* shoot('text-line-croc');
@@ -801,10 +841,10 @@
     yield* wait(1.0);
     yield* shoot('croc-1.5');
     // the title card is leaving: the hand becomes a crocodile
-    setPose('crocOpen', 0.6);
+    setPose('crocAjar', 0.6);
     orient(...CROC_ORIENT);
     ctl.tau = 0.3;
-    shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
+    shadowTo(0.02, CROC_T, { feature: 'mouth', size: 1.1 });
     yield* wait(1.5);
     yield* shoot('croc-3.0');
     ctl.tau = 0.16;
@@ -819,7 +859,7 @@
       yield* wait(0.16);
       yield* shoot('croc-chomp');
       yield* wait(0.3);
-      setPose('crocOpen', 0.32);
+      setPose('crocAjar', 0.32);
       yield* wait(0.5);
     }
     // the close: full at last (skip ahead), the crocodile drifts off glowing
@@ -930,15 +970,15 @@
     goto('croc');
     yield* until(() => !S().view.title.id, 4);
     yield* wait(0.4);
-    setPose('crocOpen', 0.5);
+    setPose('crocAjar', 0.5);
     orient(...CROC_ORIENT);
     ctl.tau = 0.3;
-    shadowTo(0.06, -0.05, { feature: 'mouth', size: 1.1 });
+    shadowTo(0.06, CROC_T, { feature: 'mouth', size: 1.1 });
     yield* wait(1.8);
     setPose('crocBite', 0.12);
     yield* wait(1.0);
     yield* shoot('croc-jaw-closed');
-    setPose('crocOpen', 0.3);
+    setPose('crocAjar', 0.3);
     yield* wait(1.0);
     yield* shoot('croc-jaw-open');
     // two swallowed fireflies, glowing in the throat (set directly: no chase)
@@ -1040,9 +1080,9 @@
     yield* wait(0.5);
     goto('croc');
     yield* until(() => !S().view.title.id, 4);
-    setPose('crocOpen', 0.5);
+    setPose('crocAjar', 0.5);
     ctl.tau = 0.3;
-    shadowTo(0.06, -0.05, { feature: 'mouth', size: 1.1 });
+    shadowTo(0.06, CROC_T, { feature: 'mouth', size: 1.1 });
     for (const o of window.__CROC_TUNE || [CROC_ORIENT]) {
       orient(...o);
       yield* wait(1.4);

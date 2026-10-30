@@ -149,7 +149,7 @@ describe('story v2: tale I (Pip in the reeds, the night-light)', () => {
       if (story.view.nightLight.visible > 0.5) nightLight++;
       const rv = story.view.rabbit;
       if (rv.visible > 0.5 && story.scene === 'croc') {
-        // out of the firefly band (fireflies never pass |x| 0.42)
+        // out of the firefly band (fireflies never pass x 0.32, FIREFLY_X)
         expect(rv.x - 0.066).toBeGreaterThan(0.5);
       }
     }
