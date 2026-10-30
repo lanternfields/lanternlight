@@ -104,7 +104,7 @@
   };
   const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
   /** The crocodile's hand orientation (pitch, yaw, roll; IWER degrees, relative to the stage). */
-  const CROC_ORIENT = Array.isArray(window.__CROC_ORIENT) ? window.__CROC_ORIENT : [70, -105, 90];
+  const CROC_ORIENT = Array.isArray(window.__CROC_ORIENT) ? window.__CROC_ORIENT : [18, -90, 90];
   /**
    * Where the crocodile's mouth works: the fireflies' band, low over the water
    * (src/core/story.ts FIREFLY_T), about level with the lantern, so the hand
@@ -112,7 +112,7 @@
    */
   const CROC_T = -0.23;
   /** The snap pose's aperture: clearly over the detector's open threshold (0.75), far from fully open. */
-  const CROC_AJAR_APERTURE = 0.92;
+  const CROC_AJAR_APERTURE = 0.85;
 
   // ---------------------------------------------------------- pose blending
   const decomp = {};
@@ -212,8 +212,22 @@
       else hi = w;
     }
     decomp.crocAjar = mix(hi);
+    // the jaw angle: between the fingertips and the thumb tip, seen from the thumb's base (the hinge)
+    const jaw = (d) => {
+      const h = d['thumb-metacarpal'].p;
+      const u = d['middle-finger-tip'].p.map((v, i) => v - h[i]);
+      const l = d['thumb-tip'].p.map((v, i) => v - h[i]);
+      const c = (u[0] * l[0] + u[1] * l[1] + u[2] * l[2]) / (Math.hypot(...u) * Math.hypot(...l) || 1);
+      return +((Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI).toFixed(1);
+    };
     // (read back by the stills runs: the blend, its aperture, and the full open's)
-    window.__crocAjar = { w: +hi.toFixed(3), aperture: +aperture(decomp.crocAjar).toFixed(3), open: +aperture(open).toFixed(3), bite: +aperture(bite).toFixed(3) };
+    window.__crocAjar = {
+      w: +hi.toFixed(3),
+      aperture: +aperture(decomp.crocAjar).toFixed(3),
+      open: +aperture(open).toFixed(3),
+      bite: +aperture(bite).toFixed(3),
+      jawDeg: { ajar: jaw(decomp.crocAjar), open: jaw(open), bite: jaw(bite) },
+    };
   }
   // One finger up (the finale's branch): a fist, the index finger straight.
   composite('pointUp', 'fist', [
@@ -576,6 +590,7 @@
   }
 
   /** The Hungry River: the hand becomes a crocodile and chases fireflies (shared by clips). */
+  let bitesTried = 0;
   function* crocBeat() {
     // hand down while the title card plays, then it becomes a crocodile:
     // fingers together, thumb dropped, side-on
@@ -610,6 +625,7 @@
         if (m && Math.hypot(m[0] - ff.x, m[1] - ff.y) < 0.06 && tt > 0.6) break;
       }
       // bite! (fast, then a held beat, then the jaw opens again)
+      bitesTried++;
       if (S().stats.chomps === 0) setShot('inset', 1, 0.35); // show the hand making the snap
       setPose('crocBite', 0.11);
       yield* wait(0.38);
@@ -629,8 +645,9 @@
     yield* crocBeat();
     ctl.size = 1;
     mark('croc-fed');
+    mark(`bites-${bitesTried}-chomps-${S().stats.chomps}-eaten-${S().stats.eaten}-done-${S().progress.completed.croc}`);
     yield* until(() => S().scene !== 'croc', 15);
-    mark('end');
+    mark(`end-${S().scene}-completed-${S().progress.completed.croc}`);
   }
 
   /**
@@ -980,7 +997,7 @@
     yield* shoot('croc-jaw-closed');
     setPose('crocAjar', 0.3);
     yield* wait(1.0);
-    yield* shoot('croc-jaw-open');
+    yield* shoot('croc-jaw-half-open');
     // two swallowed fireflies, glowing in the throat (set directly: no chase)
     S().eaten = 2;
     S().view.croc.full = 2 / 7;

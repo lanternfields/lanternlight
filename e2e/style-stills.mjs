@@ -131,7 +131,31 @@ while (!r.done && r.t < 200) {
   if (r.snap) {
     const file = path.join(dir, `${String(shots.length + 1).padStart(2, '0')}-${r.snap}.png`);
     await page.screenshot({ path: file });
-    shots.push({ name: r.snap, file, t: +r.t.toFixed(2), scene: r.scene, beat: r.beat });
+    // the hand and its jaw at the snap (shadow-side angle at the knuckles, mouth state, height vs the lantern)
+    const diag = await page.evaluate(() => {
+      const app = window.__lantern.app;
+      const a = app.model.actors[1];
+      const hp = window.IWER_DEVICE.hands.right.position;
+      const lp = app.lantern.group.position;
+      const ang = (x, y) => (Math.atan2(y, x) * 180) / Math.PI;
+      const fa = (() => {
+        for (let i = a.capsuleStart; i < a.capsuleStart + a.capsuleCount; i++) if (app.model.capsules[i].forearm) return app.model.capsules[i];
+        return null;
+      })();
+      return {
+        present: a.present,
+        aperture: +a.aperture.toFixed(3),
+        mouthOpen: a.mouth.open,
+        snoutDeg: +ang(a.upperS - a.knuckleS, a.upperT - a.knuckleT).toFixed(1),
+        jawShadowDeg: +Math.abs(ang(a.upperS - a.knuckleS, a.upperT - a.knuckleT) - ang(a.lowerS - a.knuckleS, a.lowerT - a.knuckleT)).toFixed(1),
+        armDeg: fa ? +ang(fa.ax - fa.bx, fa.ay - fa.by).toFixed(1) : null,
+        handY: +hp.y.toFixed(3),
+        lanternY: +lp.y.toFixed(3),
+        ajar: window.__crocAjar ?? null,
+      };
+    });
+    console.log('DIAG', r.snap, JSON.stringify(diag));
+    shots.push({ name: r.snap, file, t: +r.t.toFixed(2), scene: r.scene, beat: r.beat, diag });
     console.log('SNAP', r.snap, r.t.toFixed(1), `${((Date.now() - t0) / 1000).toFixed(0)}s`);
   }
 }
