@@ -52,6 +52,11 @@ export interface Capsule2D {
 }
 
 export const MAX_CAPSULES = 96;
+/** The forearm's shadow: length (m) from the wrist, radius at the wrist and at its far end (m; it tapers). */
+export const FOREARM_LENGTH = 0.16;
+export const FOREARM_RADIUS: readonly [number, number] = [0.025, 0.019];
+/** How much the arm bends from the hand's axis toward the shoulder and elbow (1 = equal weight). */
+export const FOREARM_SHOULDER_PULL = 0.45;
 /** Palm contour points (wrist sides, thumb base, web, knuckles, pinky edge). */
 export const PALM_POINTS = 10;
 void PALM_POLYGON;
@@ -391,8 +396,11 @@ export class ShadowModel {
     for (const [a, b] of SHADOW_BONES) {
       this.pushCapsule(pj[a], pj[b], hand.radii[a] * 0.95, hand.radii[b] * 0.95, stage as StageFrame, index);
     }
-    // Forearm: from the wrist toward the elbow, i.e. toward the same-side
-    // shoulder (blended a little with the hand's own axis), 19 cm long.
+    // Forearm: from the wrist back along the hand's own axis (a straight
+    // wrist), bent a little toward the same-side shoulder and the elbow below
+    // it. A shadow-theatre arm, not a column: it tapers from the wrist and
+    // fades out within 16 cm, so the hand is the subject (a crocodile held in
+    // from the side reads as head and neck, never as a sea serpent).
     const w = hand.joints[J.wrist];
     const side = hand.handedness === 'left' ? -1 : 1;
     this.tmpC.copy(this.head);
@@ -405,15 +413,15 @@ export class ShadowModel {
     normalize(this.tmpA, this.tmpA);
     sub(this.tmpB, w, hand.joints[J.middleMeta]);
     normalize(this.tmpB, this.tmpB);
-    addScaled(this.tmpA, this.tmpB, this.tmpA, 2.5);
+    addScaled(this.tmpA, this.tmpB, this.tmpA, FOREARM_SHOULDER_PULL);
     normalize(this.tmpA, this.tmpA);
-    addScaled(this.tmpB, w, this.tmpA, 0.19);
+    addScaled(this.tmpB, w, this.tmpA, FOREARM_LENGTH);
     projectToStage(this.tmpB, light, stage, this.pa);
-    this.pushCapsule(pj[J.wrist], this.pa, 0.027, 0.034, stage as StageFrame, index);
+    this.pushCapsule(pj[J.wrist], this.pa, FOREARM_RADIUS[0], FOREARM_RADIUS[1], stage as StageFrame, index);
     if (this.capsuleCount > start) {
       const fa = this.capsules[this.capsuleCount - 1];
       fa.forearm = true;
-      fa.fadeB = 0.12; // the arm's shadow fades out toward the elbow
+      fa.fadeB = 0; // the arm's shadow fades out before the elbow
     }
     actor.capsuleCount = this.capsuleCount - start;
     // Hand-only bounds (gameplay uses these; the forearm is just for looks).

@@ -254,8 +254,10 @@ export const WOLF_EXTENT: Extent = { back: 0.24, front: 0.235, height: 0.31, bod
 export const BIRD_EXTENT: Extent = { back: 0.047 * 1.8, front: 0.041 * 1.8, height: 0.058 * 1.8, body: 0.05 * 1.8 };
 /** Where the bird's beak is, from its feet (facing +x): it carries the spark there. */
 export const BIRD_BEAK: readonly [number, number] = [0.04 * 1.8, 0.045 * 1.8];
-/** The full crocodile drifting off (head and back above the water line). */
-export const NIGHT_CROC_EXTENT: Extent = { back: 0.15 * 1.7, front: 0.156 * 1.7, height: 0.05 * 1.7, body: 0.2 * 1.7 };
+/** The full crocodile drifting off (render/croc-art.ts): its drawing scale... */
+export const NIGHT_CROC_SCALE = 2.0;
+/** ...and its reach (head, back and tail above the water line). */
+export const NIGHT_CROC_EXTENT: Extent = { back: 0.165 * NIGHT_CROC_SCALE, front: 0.176 * NIGHT_CROC_SCALE, height: 0.066 * NIGHT_CROC_SCALE, body: 0.2 * NIGHT_CROC_SCALE };
 
 export interface SilhouetteBox {
   id: 'pip' | 'wolf' | 'bird' | 'croc';

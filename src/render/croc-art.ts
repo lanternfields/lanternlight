@@ -7,6 +7,7 @@
 import { Group, Mesh, ShaderMaterial, ShapeGeometry } from '@iwsdk/core';
 import { CH_CUTOUT, CH_HOLE, createFlatMaterial } from './materials.js';
 import { circleShape, pathGeometry, pathShapes } from './paths.js';
+import { NIGHT_CROC_SCALE } from '../core/story.js';
 
 /** A crocodile head, jaws open, facing right (stage units, ~0.34 long). */
 export const CROC_HEAD = [
@@ -69,31 +70,53 @@ export function createCrocHead(): { group: Group; materials: ShaderMaterial[] } 
   return { group, materials: [cut, hole] };
 }
 
-// The full crocodile floating in the river: only its back, eye bump and long
-// snout show above the water line (y = 0); the rest is under the water.
+// The full crocodile floating in the river, in side profile, unmistakable at
+// a glance: a long tail rising to a ridged back, the raised eye bump, and a
+// long, flat snout with a nostril bump and a smiling mouth line. The water
+// line is y = 0; below it the cut-out runs on under the water.
 const FLOATING =
-  'M -0.15 -0.02 Q -0.15 0.0 -0.12 0.006 Q -0.08 0.016 -0.04 0.024 Q 0.0 0.028 0.03 0.03 ' +
-  'Q 0.036 0.046 0.05 0.046 Q 0.062 0.045 0.066 0.03 Q 0.1 0.022 0.13 0.018 Q 0.146 0.024 0.152 0.016 ' +
-  'Q 0.156 0.006 0.148 0.0 L 0.15 -0.03 L -0.15 -0.03 Z';
+  'M -0.165 0.002 Q -0.14 0.01 -0.11 0.016 Q -0.07 0.024 -0.035 0.034 Q -0.005 0.044 0.02 0.04 ' +
+  'Q 0.034 0.037 0.044 0.046 Q 0.054 0.066 0.068 0.062 Q 0.08 0.056 0.09 0.046 ' +
+  'L 0.148 0.036 Q 0.156 0.045 0.165 0.04 Q 0.177 0.034 0.172 0.025 Q 0.166 0.016 0.152 0.013 ' +
+  'Q 0.11 0.006 0.084 0.0 L 0.084 -0.03 L -0.165 -0.03 Z';
+/** Height of the back's top edge at x (piecewise linear through the outline's points). */
+function floatBackY(x: number): number {
+  const pts: readonly (readonly [number, number])[] = [
+    [-0.165, 0.002],
+    [-0.11, 0.016],
+    [-0.035, 0.034],
+    [0.0, 0.042],
+    [0.02, 0.04],
+  ];
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1];
+    const [x1, y1] = pts[i];
+    if (x <= x1) return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
+  }
+  return pts[pts.length - 1][1];
+}
+// a bold ridge of scutes along the back and the root of the tail
 const FLOAT_SCUTES = (() => {
   const parts: string[] = [];
   for (const [x, h] of [
-    [-0.11, 0.01],
-    [-0.085, 0.013],
-    [-0.06, 0.015],
-    [-0.035, 0.016],
-    [-0.01, 0.015],
-    [0.012, 0.012],
+    [-0.125, 0.009],
+    [-0.098, 0.012],
+    [-0.07, 0.015],
+    [-0.042, 0.017],
+    [-0.014, 0.017],
+    [0.012, 0.013],
   ]) {
-    const y = 0.006 + ((x + 0.12) / 0.15) * 0.022;
-    parts.push(`M ${x - 0.009} ${y - 0.004} L ${x + 0.008} ${y - 0.004} L ${x - 0.002} ${y + h} Z`);
+    const y = floatBackY(x) - 0.004;
+    parts.push(`M ${x - 0.011} ${y} L ${x + 0.009} ${y} L ${x - 0.003} ${y + h} Z`);
   }
   return parts.join(' ');
 })();
-/** The lit window in its throat (just behind the jaw), in model units. */
-export const NIGHT_CROC_THROAT: readonly [number, number] = [0.085 * 1.7, 0.004 * 1.7];
+// the mouth line: a thin cut along the snout that turns up at the back (a smile)
+const FLOAT_MOUTH = 'M 0.088 0.0255 Q 0.11 0.0175 0.163 0.0195 L 0.163 0.0235 Q 0.112 0.022 0.091 0.0295 Z';
 /** Drawing scale of the floating crocodile. */
-const NIGHT_K = 1.7;
+const NIGHT_K = NIGHT_CROC_SCALE;
+/** The lit window in its throat (behind the jaw, under the eye bump), in stage units at that scale. */
+export const NIGHT_CROC_THROAT: readonly [number, number] = [0.05 * NIGHT_K, 0.02 * NIGHT_K];
 
 /** The night-light crocodile: a floating cut-out with an eye hole and a lit throat window. */
 export class NightCroc {
@@ -103,10 +126,11 @@ export class NightCroc {
     const cut = createFlatMaterial(CH_CUTOUT, 1);
     const hole = createFlatMaterial(CH_HOLE, 1);
     this.group.add(new Mesh(new ShapeGeometry(pathShapes(FLOATING + ' ' + FLOAT_SCUTES), 10), cut));
-    this.group.add(new Mesh(new ShapeGeometry(circleShape(0.051, 0.035, 0.0055, 14), 1), hole));
+    this.group.add(new Mesh(new ShapeGeometry(circleShape(0.062, 0.054, 0.0065, 16), 1), hole));
+    this.group.add(new Mesh(new ShapeGeometry(pathShapes(FLOAT_MOUTH), 8), hole));
     const win = new Mesh(new ShapeGeometry(circleShape(0, 0, 1, 24), 1), hole);
     win.position.set(NIGHT_CROC_THROAT[0] / NIGHT_K, NIGHT_CROC_THROAT[1] / NIGHT_K, 0);
-    win.scale.set(0.026, 0.012, 1);
+    win.scale.set(0.024, 0.012, 1);
     this.group.add(win);
     this.materials = [cut, hole];
     this.group.visible = false;

@@ -103,6 +103,8 @@
     out[15] = 1;
   };
   const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+  /** The crocodile's hand orientation (pitch, yaw, roll; IWER degrees, relative to the stage). */
+  const CROC_ORIENT = [24, -90, 90];
 
   // ---------------------------------------------------------- pose blending
   const decomp = {};
@@ -155,7 +157,9 @@
     decomp[name] = out;
   };
   // The crocodile: fingers together and straight (the upper jaw), the thumb
-  // dropped (open) or pressed to the fingertips (bite).
+  // dropped (open) or pressed to the fingertips (bite). Held as the classic
+  // shadow puppet: side-on, the arm coming in low from the side and rising
+  // gently (about 20-40 degrees) to the snout, never a column from below.
   composite('crocOpen', 'flat', [['open', THUMB]]);
   {
     // bite: the thumb tip presses up to the (straight) index/middle fingertips
@@ -540,7 +544,7 @@
     yield* until(() => !S().view.title.id, 4);
     yield* wait(0.2);
     setPose('crocOpen', 0.6);
-    orient(10, -90, 90);
+    orient(...CROC_ORIENT);
     ctl.tau = 0.3;
     shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
     yield* wait(1.6);
@@ -692,7 +696,7 @@
     yield* until(() => !S().view.title.id, 5);
     yield* wait(0.2);
     setPose('crocOpen', 0.6);
-    orient(10, -90, 90);
+    orient(...CROC_ORIENT);
     ctl.tau = 0.3;
     shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
     yield* wait(7.5);
@@ -732,7 +736,7 @@
     yield* wait(1.3);
     yield* shoot('text-title-croc');
     setPose('crocOpen', 0.6);
-    orient(10, -90, 90);
+    orient(...CROC_ORIENT);
     yield* until(() => !S().view.title.id, 5);
     shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
     yield* until(() => S().view.text.lineAlpha > 0.99, 5);
@@ -798,7 +802,7 @@
     yield* shoot('croc-1.5');
     // the title card is leaving: the hand becomes a crocodile
     setPose('crocOpen', 0.6);
-    orient(10, -90, 90);
+    orient(...CROC_ORIENT);
     ctl.tau = 0.3;
     shadowTo(-0.02, -0.04, { feature: 'mouth', size: 1.1 });
     yield* wait(1.5);
@@ -914,6 +918,49 @@
     app().freezeStory = false;
   }
 
+  /**
+   * The crocodile alone, for art review (e2e/style-stills.mjs ... crocStills):
+   * jaw closed, jaw open with teeth, two swallowed fireflies glowing in the
+   * throat, and the fed crocodile in the river.
+   */
+  function* crocStills() {
+    setPose('relaxed', 0.4);
+    rest();
+    yield* wait(0.5);
+    goto('croc');
+    yield* until(() => !S().view.title.id, 4);
+    yield* wait(0.4);
+    setPose('crocOpen', 0.5);
+    orient(...CROC_ORIENT);
+    ctl.tau = 0.3;
+    shadowTo(0.06, -0.05, { feature: 'mouth', size: 1.1 });
+    yield* wait(1.8);
+    setPose('crocBite', 0.12);
+    yield* wait(1.0);
+    yield* shoot('croc-jaw-closed');
+    setPose('crocOpen', 0.3);
+    yield* wait(1.0);
+    yield* shoot('croc-jaw-open');
+    // two swallowed fireflies, glowing in the throat (set directly: no chase)
+    S().eaten = 2;
+    S().view.croc.full = 2 / 7;
+    yield* wait(1.0);
+    yield* shoot('croc-2-fireflies');
+    // fed: the full crocodile slips off the hand into the river, a night-light
+    S().eaten = 6;
+    S().view.croc.full = 6 / 7;
+    yield* wait(0.2);
+    S().eaten = 7;
+    S().view.croc.gulps++;
+    S().view.croc.full = 1;
+    yield* wait(0.3);
+    rest();
+    setPose('relaxed', 0.6);
+    yield* wait(1.6);
+    yield* shoot('croc-fed');
+    yield* wait(0.5);
+  }
+
   applyBlend();
   let gen = null;
   let done = false;
@@ -921,7 +968,7 @@
     marks,
     start(name = 'coreLoop') {
       if (name !== 'coreLoop') shotCh.wide.from = shotCh.wide.to = 0;
-      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale, finaleClip, bridgeTune }[name]();
+      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale, crocStills, finaleClip, bridgeTune }[name]();
       gen.next(0);
       done = false;
       time = 0;

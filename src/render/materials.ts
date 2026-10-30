@@ -106,7 +106,8 @@ export function createCapsuleMaterial(channel: Vector4): ShaderMaterial {
           if (v <= 0.002) discard;
           vec2 ba = b - a;
           float t = clamp(dot(vP - a, ba) / max(dot(ba, ba), 1e-9), 0.0, 1.0);
-          float fade = mix(1.0, vFade, smoothstep(0.35, 1.0, t));
+          // (a fading capsule, the forearm, softens from just past the wrist)
+          float fade = mix(1.0, vFade, smoothstep(0.08, 0.95, t));
           gl_FragColor = uChannel * (v * vRad.w * fade * uStrength);
         }
       `,
