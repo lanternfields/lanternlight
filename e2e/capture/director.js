@@ -644,7 +644,12 @@
     mark('croc');
     yield* crocBeat();
     ctl.size = 1;
+    if (shotCh.inset.to === 1) setShot('inset', 0, 0.35);
     mark('croc-fed');
+    // as in the full run: the payoff (the night-light drifting off) plays clear of the hand
+    ctl.tau = 0.7;
+    rest();
+    setPose('relaxed', 0.9);
     mark(`bites-${bitesTried}-chomps-${S().stats.chomps}-eaten-${S().stats.eaten}-done-${S().progress.completed.croc}`);
     yield* until(() => S().scene !== 'croc', 15);
     mark(`end-${S().scene}-completed-${S().progress.completed.croc}`);
