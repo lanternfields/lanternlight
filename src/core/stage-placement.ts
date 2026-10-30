@@ -314,11 +314,18 @@ export function chooseStage(
     let H = stageHeightForDistance(L, opts.verticalHalfAngleDeg) * opts.sizeScale;
     let W = H * opts.aspect;
     const wall = extentsOnFrame(plane.points, hit, right, up);
+    // the gaze passes beside this wall: the wall it meets is the one in front,
+    // and its reason is the one to tell the viewer
+    if (wall.r0 > 0 || wall.r1 < 0) promise -= 1;
     const margin = 0.06;
     const availW = wall.r1 - wall.r0 - 2 * margin;
     const availH = wall.u1 - wall.u0 - 2 * margin;
     const fit = Math.min(availW / W, availH / H, 1);
     if (fit < 0.6) {
+      // a sliver of wall (a pillar, a reveal) says little about the wall in
+      // front: a real wall beside it, rejected for what covers it, is the
+      // more honest reason
+      promise -= 1;
       reject('wall-too-small');
       continue;
     }
@@ -471,7 +478,21 @@ export function chooseStage(
     // shrunk too far (a small wall, furniture, a busy wall, all at once)? The
     // paper scroll is the better stage than a sliver.
     if (2 * Math.atan(H / 2 / L) < MIN_STAGE_FRACTION * 2 * (((opts.verticalHalfAngleDeg + 2) * Math.PI) / 180)) {
-      reject('wall-too-small');
+      // say what took the room: what covers (or stands in front of) the
+      // full-size stage straight ahead, else the wall is simply small
+      const W0 = W / localBest.k;
+      const H0 = H / localBest.k;
+      const r = clamp(0, wall.r0 + W0 / 2, wall.r1 - W0 / 2);
+      const u = clamp(prefU, wall.u0 + H0 / 2, wall.u1 - H0 / 2);
+      const ahead: Rect = { r0: r - W0 / 2, r1: r + W0 / 2, u0: u - H0 / 2, u1: u + H0 / 2 };
+      let covered = 0;
+      for (const o of wallRects) covered += overlapArea(ahead, o);
+      let hidden = 0;
+      for (const o of furnitureRects) hidden += overlapArea(ahead, o);
+      if (covered / (W0 * H0) > 0.08) {
+        reject('wall-covered');
+        if (promise >= rejectedPromise) blockersSeen = wallLabels.join(',');
+      } else reject(hidden / (W0 * H0) > 0.08 ? 'wall-occluded' : 'wall-too-small');
       continue;
     }
     if (!best || localBest.score > best.score) {

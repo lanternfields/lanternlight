@@ -479,3 +479,37 @@ describe('one wall the scan split into pieces', () => {
     expect(out.length).toBe(2);
   });
 });
+
+describe('the reason given is what takes the wall, not a sliver beside it', () => {
+  it('a narrow sliver of wall nearer than a window wall: the window is the reason', () => {
+    const sliver = wallZ('pillar', -1.9, 0.3, 0.5, 0, 2.6);
+    const big = wallZ('big', -2, -2.4, 2.4, 0, 2.6);
+    const win = wallZ('win', -2, -2.3, 2.3, 0.9, 2.5, 'WINDOW');
+    for (const order of [[sliver, big, win], [big, win, sliver]]) {
+      const p = chooseStage(order, head, fwd);
+      expect(p.kind).toBe('scroll');
+      expect(p.reason).toBe('wall-covered:window');
+    }
+  });
+  it('a window filling the middle, too little wall beside it: the window is the reason', () => {
+    const w = wallZ('w', -1.9, -1.6, 1.5, 0, 2.43);
+    const win = wallZ('win', -1.9, -1.15, 0.75, 0.85, 2.1, 'WINDOW');
+    const p = chooseStage([w, win], head, fwd);
+    expect(p.kind).toBe('scroll');
+    expect(p.reason).toBe('wall-covered:window');
+  });
+  it('a wall of windows ahead, a free wall only far to the side: the windows are the reason', () => {
+    const ahead = wallZ('ahead', -2.6, -2.9, 1.2, 0, 2.6);
+    const win = wallZ('win', -2.6, -2.85, 1.15, 0.8, 2.6, 'WINDOW');
+    const alcove = wallZ('alcove', -1.9, 1.75, 3.6, 0, 2.6); // nearer, but beside the gaze
+    for (const order of [[alcove, ahead, win], [ahead, win, alcove]]) {
+      const p = chooseStage(order, head, fwd);
+      expect(p.kind).toBe('scroll');
+      expect(p.reason).toBe('wall-covered:window');
+    }
+  });
+  it('a small wall alone is still too small', () => {
+    const p = chooseStage([wallZ('w', -2, -0.25, 0.25, 0, 2.6)], head, fwd);
+    expect(p.reason).toBe('wall-too-small');
+  });
+});
