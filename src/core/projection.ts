@@ -132,8 +132,15 @@ export const NOMINAL_HAND = { forward: 0.42, drop: 0.22, size: 0.19 };
 /** Nominal hand point for a head pose and stage (world). */
 export function nominalHandPoint(stage: Readonly<StageFrame>, head: Readonly<V3>, out: V3): V3 {
   out.copy(head);
-  const fx = -stage.normal.x;
-  const fz = -stage.normal.z;
+  // in front of the viewer, toward the stage's middle (not along the wall's
+  // normal: on a wall seen at an angle, or a stage beside the gaze, that would
+  // put the comfortable hand's shadow off to the side of the stage)
+  let fx = stage.origin.x - head.x;
+  let fz = stage.origin.z - head.z;
+  if (Math.hypot(fx, fz) < 1e-3) {
+    fx = -stage.normal.x;
+    fz = -stage.normal.z;
+  }
   const l = Math.hypot(fx, fz) || 1;
   out.x += (fx / l) * NOMINAL_HAND.forward;
   out.z += (fz / l) * NOMINAL_HAND.forward;
