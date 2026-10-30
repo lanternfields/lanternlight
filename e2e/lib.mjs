@@ -21,7 +21,7 @@ export async function launch({ width = 1280, height = 800 } = {}) {
   const page = await context.newPage();
   const logs = [];
   page.on('console', (m) => logs.push(`${m.type()}: ${m.text()}`));
-  page.on('pageerror', (e) => logs.push(`PAGEERROR: ${e.message}`));
+  page.on('pageerror', (e) => logs.push(`PAGEERROR: ${e.message} @ ${(e.stack || '').split('\n').slice(1, 4).join(' | ').trim()}`));
   return { browser, context, page, logs };
 }
 

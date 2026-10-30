@@ -789,7 +789,11 @@ export class App {
       const fx = this.headForward.x;
       const fz = this.headForward.z;
       const cos = (sx * fx + sz * fz) / ((Math.hypot(sx, sz) || 1) * (Math.hypot(fx, fz) || 1));
-      if (cos > Math.cos((15 * Math.PI) / 180)) this.turnDir = 0;
+      if (cos > Math.cos((15 * Math.PI) / 180)) {
+        this.turnDir = 0;
+        // re-aim the stage and its light from where the viewer now faces
+        this.requestReplace();
+      }
     }
     this.turnArrow.update(this.turnDir, this.flameW, { x: -this.headForward.z, z: this.headForward.x }, time, dt);
     // passthrough: the real hands occlude the stage, the captions and the lantern

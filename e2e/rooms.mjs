@@ -3,8 +3,8 @@
  *
  * Primary (the landing page says "Sit facing a wall"): for each room, the
  * viewer sits at its table or desk if it has one (0.45 m back from its edge,
- * toward the room's middle), else at the room origin, and faces EACH wall in
- * turn (0.6-4.5 m away). The stage must land on a usable wall in 85%+ of these
+ * toward the room's middle), else at the room origin, and faces the middle of
+ * EACH wall in turn (0.6-4.5 m away, turned toward the seat within 60 degrees). The stage must land on a usable wall in 85%+ of these
  * seats. Failures are split into genuine blockers (a window, screen, mirror,
  * shelving or an opening covering the wall; furniture in front) and others.
  *
@@ -77,8 +77,15 @@ async function survey(room) {
         D = -D;
       }
       if (D < 0.6 || D > 4.5) continue;
-      // gaze toward the wall: -n; IWER yaw: forward = (-sin yaw, 0, -cos yaw)
-      const yaw = (Math.atan2(nx, nz) * 180) / Math.PI;
+      // face the middle of the wall (IWER yaw: forward = (-sin yaw, 0, -cos yaw)),
+      // if the wall faces the seat within 60 degrees
+      const cx = p.points.reduce((a, q2) => a + q2.x, 0) / p.points.length;
+      const cz = p.points.reduce((a, q2) => a + q2.z, 0) / p.points.length;
+      const dx = cx - seat.x;
+      const dz = cz - seat.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      if ((-dx * nx - dz * nz) / dl < Math.cos((60 * Math.PI) / 180)) continue;
+      const yaw = (Math.atan2(-dx, -dz) * 180) / Math.PI;
       const y = Math.round(((yaw % 360) + 360) % 360);
       if (!yaws.some((o) => Math.abs(((o - y + 540) % 360) - 180) < 10)) yaws.push(y);
     }
