@@ -31,6 +31,7 @@ import { GENTLE_CLASSIFIER, DEFAULT_CLASSIFIER } from './core/hand-features.js';
 import { SceneId, Story, TITLE_IN, TITLE_HOLD, TITLE_OUT, StageView, SilhouetteBox, silhouettes } from './core/story.js';
 import { LanternSpark } from './render/spark.js';
 import { TurnArrow } from './render/turn-arrow.js';
+import { blockedNotice } from './core/placement-notice.js';
 import { COPY } from './core/copy.js';
 import { RoomDim, StageComposite } from './render/composite.js';
 import { Lantern } from './render/lantern.js';
@@ -177,6 +178,11 @@ export class App {
   /** A one-line notice under the stage ('' = none) and how long it stays (s). */
   private notice = '';
   private noticeTime = 0;
+  private noticeTotal = 6;
+  /** The stage fell back to the scroll because the wall in front can't take it. */
+  private blockedScroll = false;
+  /** Where the viewer faced (yaw, radians) when the stage was last placed. */
+  private placedYaw = 0;
   /** After room capture: re-placing waits (until this session time) for the new planes. */
   private awaitScanUntil = -1;
   private saveTimer = 0;
@@ -497,6 +503,7 @@ export class App {
     this.roomCaptureAsked = true;
     this.notice = COPY.NOTICE_ROOM;
     this.noticeTime = 6;
+    this.noticeTotal = 6;
     try {
       s.initiateRoomCapture().then(
         () => {
@@ -661,6 +668,15 @@ export class App {
     // a wall 30-45 degrees off to the side: the stage goes there, and a nudge
     // (words under the stage, a chevron in the lantern's light) asks for a turn
     this.turnDir = this.placement.turnDeg > 0 ? 1 : this.placement.turnDeg < 0 ? -1 : 0;
+    // the wall in front can't take the stage: say why, honestly, and that another wall would
+    const why = blockedNotice(this.placement.kind, this.placement.reason);
+    this.blockedScroll = why !== '';
+    if (why) {
+      this.notice = why;
+      this.noticeTime = 10;
+      this.noticeTotal = 10;
+    } else if (this.notice !== COPY.NOTICE_ROOM) this.noticeTime = 0;
+    this.placedYaw = Math.atan2(this.headForward.x, this.headForward.z);
     this.dim.setStage(fr);
     this.stage.setLayout(fr.aspect, QUALITY_LEVELS[this.quality.level].stageResolution);
     const lp = this.lanternPlacement.position;
@@ -796,6 +812,17 @@ export class App {
       }
     }
     this.turnArrow.update(this.turnDir, this.flameW, { x: -this.headForward.z, z: this.headForward.x }, time, dt);
+    // on the scroll because the wall was blocked: once the viewer turns to
+    // another wall (25 degrees or more), try placing the stage again
+    if (this.blockedScroll && !this.replacePending) {
+      let dy = Math.atan2(this.headForward.x, this.headForward.z) - this.placedYaw;
+      while (dy > Math.PI) dy -= 2 * Math.PI;
+      while (dy < -Math.PI) dy += 2 * Math.PI;
+      if (Math.abs(dy) > (25 * Math.PI) / 180) {
+        this.placedYaw += dy;
+        this.requestReplace();
+      }
+    }
     // passthrough: the real hands occlude the stage, the captions and the lantern
     const occlude = this.session.mode === 'ar' && !this.emulated && occluderEnabled(this.occluderQuery, this.settings.occluder);
     this.occluder.update(occlude, this.hands, this.head);
@@ -976,7 +1003,7 @@ export class App {
     } else if (this.noticeTime > 0) {
       // a system notice (room capture) takes the prompt's place for a moment
       this.promptText.set(this.notice);
-      this.promptText.show(Math.min(1, this.noticeTime / 0.4, (6 - this.noticeTime) / 0.4));
+      this.promptText.show(Math.min(1, this.noticeTime / 0.4, (this.noticeTotal - this.noticeTime) / 0.4));
     } else {
       this.promptText.set(prompt);
       const pa = tv.promptAlpha;
@@ -1278,6 +1305,7 @@ export class App {
         : null,
       planes: this.planes.length,
       turn: this.turnDir,
+      notice: this.turnDir !== 0 ? 'turn' : this.noticeTime > 0 ? this.notice : '',
       wallsInRange: wallsInRange(this.planes, this.head, this.headForward),
       obstacles: this.obstacles.map((o) => o.label),
       planeLabels: this.planes.map((pl) => pl.label + '/' + pl.orientation),

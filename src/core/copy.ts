@@ -64,6 +64,14 @@ export interface Copy {
   /** The stage is on a wall a little off to the side: a nudge to turn toward it. */
   NOTICE_TURN_LEFT: string;
   NOTICE_TURN_RIGHT: string;
+  /** The wall in front can't take the stage (the scroll instead): why, and that another wall would. */
+  NOTICE_BLOCKED_WINDOW: string;
+  NOTICE_BLOCKED_SCREEN: string;
+  NOTICE_BLOCKED_MIRROR: string;
+  NOTICE_BLOCKED_SHELF: string;
+  NOTICE_BLOCKED_BUSY: string;
+  NOTICE_BLOCKED_FURNITURE: string;
+  NOTICE_BLOCKED_SMALL: string;
 }
 
 /** The script: STORY_V2.md section 3, verbatim (approved 2026-10-28). */
@@ -106,9 +114,16 @@ export const COPY: Copy = {
   BRIDGE: ['Lie flat.\nBe the bridge.', 'Hold your hand flat and sideways\nso its shadow spans the river'],
   CLOSER: ['Bring it closer\nto you', 'Bring your hand back toward you:\nits shadow grows bigger'],
   BIG: ['Be bigger\nthan the wolf', 'Bring your hand back toward you,\nor raise both hands to make your shadow big'],
-  NOTICE_ROOM: "Let's find your walls",
+  NOTICE_ROOM: "Let's find\nyour walls",
   NOTICE_TURN_LEFT: 'Turn a little\nto your left',
   NOTICE_TURN_RIGHT: 'Turn a little\nto your right',
+  NOTICE_BLOCKED_WINDOW: 'A window is here.\nTry another wall.',
+  NOTICE_BLOCKED_SCREEN: 'A screen is here.\nTry another wall.',
+  NOTICE_BLOCKED_MIRROR: 'A mirror is here.\nTry another wall.',
+  NOTICE_BLOCKED_SHELF: 'Shelves are here.\nTry another wall.',
+  NOTICE_BLOCKED_BUSY: 'This wall is busy.\nTry another wall.',
+  NOTICE_BLOCKED_FURNITURE: 'Furniture is here.\nTry another wall.',
+  NOTICE_BLOCKED_SMALL: 'Not enough wall.\nTry another wall.',
   FINGER: ['Hold one finger\nvery still', 'Hold up one pointing finger\nand keep it still so the bird can land'],
 };
 

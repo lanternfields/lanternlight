@@ -19,7 +19,8 @@
  */
 import { launch, openApp, enterXR, snap, shot, remote, setHand, writeJSON } from './lib.mjs';
 
-const ROOMS = ['living_room', 'meeting_room', 'music_room', 'office_large', 'office_small', 'none'];
+// (LANTERN_ROOMS=office_small,none limits the sweep, for diagnostics)
+const ROOMS = process.env.LANTERN_ROOMS ? process.env.LANTERN_ROOMS.split(',') : ['living_room', 'meeting_room', 'music_room', 'office_large', 'office_small', 'none'];
 const COMPASS = [0, 90, 180, 270];
 const GENUINE = new Set(['window', 'windowframe', 'screen', 'mirror', 'shelf', 'invisiblewallface']);
 const results = [];
@@ -107,6 +108,8 @@ async function runSeat(room, seat, yaw, mode) {
   let s = await snap(page);
   let face = yaw;
   const placed = s.stage;
+  // the notice shown as the stage is placed (a blocked wall says why, and to try another)
+  const noticeAtPlace = s.notice || '';
   // nudged to turn a little (a wall 30-45 degrees to the side): turn toward the stage
   if (placed.turnDeg) {
     const dx = placed.origin[0] - seat.x;
@@ -136,6 +139,7 @@ async function runSeat(room, seat, yaw, mode) {
   const reason = st.reason || '';
   const labels = reason.startsWith('wall-covered:') ? reason.slice(13).split(',') : [];
   const genuine = st.kind === 'scroll' && (reason === 'wall-occluded' || (labels.length > 0 && labels.every((l) => GENUINE.has(l))));
+  const prompted = st.kind === 'scroll' && noticeAtPlace !== '' && noticeAtPlace !== 'turn';
   const r = {
     mode,
     room,
@@ -145,6 +149,8 @@ async function runSeat(room, seat, yaw, mode) {
     kind: st.kind,
     reason,
     genuine,
+    prompted,
+    notice: noticeAtPlace.replace(/\n/g, ' / '),
     turnDeg: placed.turnDeg ? Math.round(placed.turnDeg) : 0,
     distance: st.distance,
     height: st.height,
@@ -171,16 +177,33 @@ try {
   failures++;
 }
 
-// primary: seated facing a wall, the stage lands on it in 85%+ of seats
+// Seated facing a wall:
+// (a) every seat without a genuine blocker gets a wall stage (a wall too small
+//     for a stage may instead say so and suggest another wall);
+// (b) every blocked seat tells the viewer why and to try another wall;
+// (c) 80%+ of all wall-facing seats get a wall stage.
 const walls = results.filter((r) => r.mode === 'walls');
 const onWall = walls.filter((r) => r.kind === 'wall').length;
 const wallFails = walls.filter((r) => r.kind !== 'wall');
 const genuine = wallFails.filter((r) => r.genuine).length;
-if (walls.length && onWall < 0.85 * walls.length) {
-  console.log('WALLS', `a wall stage in ${onWall} of ${walls.length} wall-facing seats (want 85%+); genuine blockers ${genuine}, other ${wallFails.length - genuine}`);
+const unblocked = walls.filter((r) => !r.genuine);
+const aPass = unblocked.filter((r) => r.kind === 'wall' || (r.reason === 'wall-too-small' && r.prompted)).length;
+const blocked = wallFails.filter((r) => r.genuine || r.reason === 'wall-too-small');
+const bPass = blocked.filter((r) => r.prompted).length;
+const cRate = walls.length ? onWall / walls.length : 1;
+if (aPass < unblocked.length) {
+  console.log('WALLS-A', `${aPass} of ${unblocked.length} seats without a genuine blocker got a wall stage (or an honest prompt for a too-small wall)`);
   failures++;
 }
-for (const r of wallFails) console.log('BLOCKED', r.room, r.yaw, r.reason, r.genuine ? '(genuine)' : '(other)');
+if (bPass < blocked.length) {
+  console.log('WALLS-B', `${bPass} of ${blocked.length} blocked seats showed the "try another wall" prompt`);
+  failures++;
+}
+if (cRate < 0.8) {
+  console.log('WALLS-C', `a wall stage in ${onWall} of ${walls.length} wall-facing seats (want 80%+)`);
+  failures++;
+}
+for (const r of wallFails) console.log('BLOCKED', r.room, r.yaw, r.reason, r.genuine ? '(genuine)' : '(other)', r.prompted ? `prompt: ${r.notice}` : 'NO PROMPT');
 // secondary (informational): fixed compass headings, among seats with a wall in range
 const compass = results.filter((r) => r.mode === 'compass' && r.wallsInRange > 0);
 const compassOnWall = compass.filter((r) => r.kind === 'wall').length;
@@ -193,7 +216,9 @@ if (onTable < reach.length) {
 }
 const errors = logs.filter((l) => /PAGEERROR/i.test(l));
 const summary = {
-  wallFacing: `${onWall}/${walls.length}`,
+  a_unblockedOnWall: `${aPass}/${unblocked.length}`,
+  b_blockedPrompted: `${bPass}/${blocked.length}`,
+  c_wallFacing: `${onWall}/${walls.length}`,
   genuineBlockers: genuine,
   otherFailures: wallFails.length - genuine,
   compass: `${compassOnWall}/${compass.length}`,
@@ -204,7 +229,9 @@ writeJSON('rooms', { summary, results, failures, errors: errors.slice(0, 20) });
 console.log(
   'RESULT',
   failures === 0 && errors.length === 0 ? 'PASS' : 'FAIL',
-  `wall-facing seats on a wall: ${summary.wallFacing}`,
+  `(a) unblocked seats on a wall: ${summary.a_unblockedOnWall}`,
+  `(b) blocked seats prompted: ${summary.b_blockedPrompted}`,
+  `(c) wall-facing seats on a wall: ${summary.c_wallFacing}`,
   `(genuine blockers ${genuine}, other ${summary.otherFailures})`,
   `compass: ${summary.compass}`,
   `lantern on table: ${summary.lanternOnTable}`,

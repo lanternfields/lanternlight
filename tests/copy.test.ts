@@ -76,3 +76,13 @@ describe('copy: line breaks', () => {
     for (const [id, text] of captions) expect(text.split('\n').length, id).toBeLessThanOrEqual(2);
   });
 });
+
+describe('copy: system notices (shown in the prompt style under the stage)', () => {
+  it('fit small-caps rows (19 characters) on at most two rows', () => {
+    for (const [id, text] of lines) {
+      if (!id.startsWith('NOTICE_')) continue;
+      expect(text.split('\n').length, id).toBeLessThanOrEqual(2);
+      for (const row of text.split('\n')) expect(row.length, `${id}: ${row}`).toBeLessThanOrEqual(19);
+    }
+  });
+});
