@@ -35,14 +35,18 @@ const BLINK: readonly (readonly [number, number])[] = [
 ];
 
 const SOFT = 0.0035;
-/** Scutes behind the eye (along the head axis, behind the knuckles): where, and how tall. */
-const BACK_SCUTES: readonly (readonly [number, number])[] = [
-  [-0.1, 0.036],
-  [-0.32, 0.033],
-  [-0.54, 0.029],
-];
-/** Scutes on the start of the arm (fractions of its length), fading with it. */
-const ARM_SCUTES: readonly number[] = [0.12, 0.34];
+/** The dorsal ridge behind the head: small, low, regular scutes along the neck (head-axis u, behind the knuckles)... */
+const BACK_SCUTES: readonly number[] = [-0.34, -0.5, -0.66, -0.82];
+/** ...and on along the arm (fractions of its length), fading with it. */
+const ARM_SCUTES: readonly number[] = [0.1, 0.24, 0.38, 0.52];
+/** One scute: height and base radius (low triangles leaning back, not spikes). */
+const SCUTE_H = 0.0135;
+const SCUTE_R = 0.0075;
+/** Where the snout's clean top line starts (behind the knuckles: no step there) and ends (past the fingertips). */
+const SNOUT_U: readonly [number, number] = [-0.24, 1.16];
+/** The closed-mouth smile: a zigzag of small interlocking teeth along the jaw line (head-axis u). */
+const SMILE_U: readonly [number, number] = [0.3, 1.0];
+const SMILE_TEETH = 8;
 /** Teeth along the mouth gap (fractions of it), upper; the lower jaw has all but the last. */
 const TEETH: readonly number[] = [0.38, 0.58, 0.78, 0.93];
 /** The jaw must be this open before teeth show (0..1). */
@@ -155,46 +159,44 @@ export class CrocOverlay {
     const tipRaw = inside(ux, uy) ? edge(ux, uy, px, py, 30) : topOff * 0.6;
     const tipOff = Math.max(0.006 * k, Math.min(topOff, this.tipTop.update(tipRaw, dt)));
 
-    // ---- one clean snout: a tapered capsule whose top edge runs straight from
-    // the brow to a little past the fingertips (it fills the dips between the
-    // knuckles; its underside stays inside the upper jaw)
-    const ra = Math.min(0.02 * k, topOff * 0.6);
-    const rb = Math.max(0.006 * k, Math.min(ra * 0.6, tipOff * 0.5));
-    const [sax, say] = at(0.06, topOff - ra);
-    const [sbx, sby] = at(1.07, tipOff - rb);
+    // ---- one long, flat snout: a tapered capsule whose top edge is a single
+    // straight line from behind the knuckles (no step there) to well past the
+    // fingertips (it fills the dips between the knuckles; its underside stays
+    // inside the head), ending in a slightly bulbous nostril tip
+    const slope = (tipOff - topOff) / 0.82;
+    const topAt = (u: number): number => topOff + slope * u;
+    const ra = Math.min(0.02 * k, topAt(SNOUT_U[0]) * 0.55);
+    const rb = Math.max(0.006 * k, Math.min(ra * 0.55, tipOff * 0.45));
+    const [sax, say] = at(SNOUT_U[0], topAt(SNOUT_U[0]) - ra);
+    const [sbx, sby] = at(SNOUT_U[1], Math.max(rb, topAt(SNOUT_U[1])) - rb);
     details.pushRaw(sax, say, sbx, sby, ra, SOFT, vis, rb);
-    // the nostril bump at its tip
-    const [nx0, ny0] = at(0.97, tipOff - 0.004 * k);
-    details.pushRaw(nx0 - dx * 0.012 * k, ny0 - dy * 0.012 * k, nx0 + dx * 0.008 * k, ny0 + dy * 0.008 * k, 0.011 * k, SOFT, vis, 0.008 * k);
+    const [nx0, ny0] = at(SNOUT_U[1] - 0.04, Math.max(rb, topAt(SNOUT_U[1] - 0.04)) - 0.008 * k);
+    details.pushRaw(nx0 - dx * 0.008 * k, ny0 - dy * 0.008 * k, nx0 + dx * 0.008 * k, ny0 + dy * 0.008 * k, 0.012 * k, SOFT, vis, 0.011 * k);
 
-    // ---- eye: fixed in the head frame on the upper back of the snout, clamped inside
-    let [ex, ey] = at(0.16, topOff - 0.022 * k);
-    for (let i = 0; i < 10 && !(model.distanceToShadow(ex, ey, mask) <= -0.006 * k); i++) {
-      ex -= px * 0.004 * k;
-      ey -= py * 0.004 * k;
-    }
+    // ---- the eye turret: a small, low, rounded bump on the head's top line,
+    // at the back of the head, with the cut-out eye in it (and a blink)
+    let [ex, ey] = at(0.1, topAt(0.1) + 0.003 * k);
     if (!this.init) {
       this.eyeX.snap(ex);
       this.eyeY.snap(ey);
     }
     ex = this.eyeX.update(ex, dt);
     ey = this.eyeY.update(ey, dt);
-    // the raised brow above the eye (the crocodile's eye bump), then the eye hole (with a blink)
-    details.pushRaw(ex - dx * 0.022 * k + px * 0.016 * k, ey - dy * 0.022 * k + py * 0.016 * k, ex + dx * 0.016 * k + px * 0.016 * k, ey + dy * 0.016 * k + py * 0.016 * k, 0.019 * k, SOFT, vis, 0.013 * k);
+    details.pushRaw(ex - dx * 0.01 * k - px * 0.004 * k, ey - dy * 0.01 * k - py * 0.004 * k, ex + dx * 0.01 * k - px * 0.004 * k, ey + dy * 0.01 * k - py * 0.004 * k, 0.014 * k, SOFT, vis, 0.014 * k);
     const blink = keyLoop(time, 4.4, BLINK);
-    holes.pushRaw(ex, ey, ex + dx * 0.004 * k, ey + dy * 0.004 * k, 0.0105 * k * blink, 0.002, vis);
+    holes.pushRaw(ex, ey, ex + dx * 0.003 * k, ey + dy * 0.003 * k, 0.0062 * k * blink, 0.002, vis);
 
-    // ---- the back: a few bold scutes behind the eye, along the back of the hand
+    // ---- the dorsal ridge: small, low, regular scutes along the neck behind the head
     for (let i = 0; i < BACK_SCUTES.length; i++) {
-      const [u, h0] = BACK_SCUTES[i];
+      const u = BACK_SCUTES[i];
       const [jx, jy] = at(u, 0);
       const raw = inside(jx, jy) ? edge(jx, jy, px, py, 30) : -1;
       if (raw < 0) continue; // past the hand (the arm carries its own)
       const off = this.back[i].update(raw, dt);
-      const bx = jx + px * (off - 0.004 * k);
-      const by = jy + py * (off - 0.004 * k);
-      const h = h0 * k;
-      details.pushRaw(bx, by, bx + px * h - dx * h * 0.4, by + py * h - dy * h * 0.4, 0.013 * k, SOFT, vis, 0.002);
+      const bx = jx + px * (off - 0.003 * k);
+      const by = jy + py * (off - 0.003 * k);
+      const h = SCUTE_H * k;
+      details.pushRaw(bx, by, bx + px * h - dx * h * 0.55, by + py * h - dy * h * 0.55, SCUTE_R * k, SOFT, vis, 0.0015);
     }
     // ...and on the start of the arm, fading with it
     const fa = forearm(model, actor);
@@ -216,10 +218,10 @@ export class CrocOverlay {
         const r = r0 + (r1 - r0) * u;
         const s = clamp01((u - ARM_FADE[0]) / (ARM_FADE[1] - ARM_FADE[0]));
         const fade = 1 - (1 - (c.fadeB ?? 1)) * s * s * (3 - 2 * s);
-        const bx = c.ax + fx * u + qx * r * 0.8;
-        const by = c.ay + fy * u + qy * r * 0.8;
-        const h = (0.03 - i * 0.003) * k;
-        details.pushRaw(bx, by, bx + qx * h + (fx / fl) * h * 0.3, by + qy * h + (fy / fl) * h * 0.3, 0.012 * k, SOFT, vis * fade, 0.002);
+        const bx = c.ax + fx * u + qx * r * 0.85;
+        const by = c.ay + fy * u + qy * r * 0.85;
+        const h = SCUTE_H * k * (1 - i * 0.08);
+        details.pushRaw(bx, by, bx + qx * h + (fx / fl) * h * 0.55, by + qy * h + (fy / fl) * h * 0.55, SCUTE_R * k, SOFT, vis * fade, 0.0015);
       }
     }
 
@@ -264,6 +266,25 @@ export class CrocOverlay {
         const lbx = x - tnx * (dn + 0.6 * step);
         const lby = y - tny * (dn + 0.6 * step);
         details.pushRaw(lbx, lby, lbx + tnx * tl * 0.85, lby + tny * tl * 0.85, 0.01 * k, SOFT, vis, 0.0016);
+      }
+    }
+
+    // ---- the smile: with the jaw shut, a zigzag of small interlocking teeth
+    // along the jaw line (light through a thin cut), the strongest cue that
+    // this is a crocodile; it gives way to the big teeth as the jaw opens
+    const smile = vis * (1 - clamp01(out * 1.5));
+    if (smile > 0.02) {
+      let prev: [number, number] | null = null;
+      for (let i = 0; i <= SMILE_TEETH; i++) {
+        const f = i / SMILE_TEETH;
+        const u = SMILE_U[0] + (SMILE_U[1] - SMILE_U[0]) * f;
+        // the jaw line: under the upper jaw, turning up a little at the back (the smile)
+        const seam = -0.42 * Math.max(topAt(u), 0.012 * k) + 0.012 * k * (1 - f) * (1 - f);
+        const zig = (i % 2 === 0 ? 1 : -1) * 0.0075 * k * (1 - 0.3 * f);
+        const q = at(u, seam + zig);
+        const deep = model.distanceToShadow(q[0], q[1], mask) <= -0.004 * k;
+        if (prev && deep) holes.pushRaw(prev[0], prev[1], q[0], q[1], 0.0021 * k, 0.0015, smile);
+        prev = deep ? q : null;
       }
     }
 

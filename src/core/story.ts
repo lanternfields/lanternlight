@@ -258,6 +258,8 @@ export const BIRD_BEAK: readonly [number, number] = [0.04 * 1.8, 0.045 * 1.8];
 export const NIGHT_CROC_SCALE = 2.2;
 /** How high it floats: its water line sits this far above the river's (eye bump and ridge clear the near reeds). */
 export const NIGHT_CROC_FLOAT = 0.022;
+/** It surfaces with its snout tip right of this (clear of the near-left reeds, which reach x ~ -0.53). */
+export const NIGHT_CROC_SNOUT_MIN_X = -0.5;
 /** ...and its reach (head, back and tail above the water line). */
 export const NIGHT_CROC_EXTENT: Extent = { back: 0.165 * NIGHT_CROC_SCALE, front: 0.176 * NIGHT_CROC_SCALE, height: 0.066 * NIGHT_CROC_SCALE, body: 0.2 * NIGHT_CROC_SCALE };
 
@@ -1236,8 +1238,8 @@ export class Story {
       v.croc.visible = approach(v.croc.visible, 0, 2.5, dt);
       v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
       v.warmth = approach(v.warmth, 0.7, 2, dt);
-      // the tale ends once the crocodile has drifted off and the storyteller is done
-      if (this.beatTime > 5.2 && this.linesIdle()) {
+      // the tale ends once the storyteller is done and the crocodile is on its way
+      if (this.beatTime > 5.2 && this.linesIdle() && this.driftTime > 2.5) {
         v.warmth = 0;
         this.requestScene(this.allComplete() && !this.finaleSeen ? 'finale' : 'menu');
       }
@@ -1365,24 +1367,38 @@ export class Story {
         // the full crocodile slips off your hand into the river, its throat still glowing
         const nl = v.nightLight;
         const from = actor ? actor.knuckleS : 0;
-        nl.x = clamp(from, -0.32, Story.CROC_PIP_X - PIP_EXTENT.back * Story.CROC_PIP_SCALE - NIGHT_CROC_EXTENT.back - 0.2);
+        // (facing left: its snout reaches NIGHT_CROC_EXTENT.front to the left, its tail to the right)
+        const lo = NIGHT_CROC_SNOUT_MIN_X + NIGHT_CROC_EXTENT.front;
+        const hi = Story.CROC_PIP_X - PIP_EXTENT.back * Story.CROC_PIP_SCALE - NIGHT_CROC_EXTENT.back - 0.2;
+        nl.x = clamp(from, Math.min(lo, hi), hi);
         nl.y = v.waterY + NIGHT_CROC_FLOAT;
         nl.dir = -1;
         nl.visible = 0;
         nl.glow = 1;
         this.driftV = 0;
+        this.i5Shown = 0;
+        this.driftTime = 0;
       }
     }
   }
 
   private driftV = 0;
+  /** Seconds the night-light line (I5) has been up, and the drift's own clock. */
+  private i5Shown = 0;
+  private driftTime = 0;
   /** The close of tale I: the full crocodile drifts off down the river, a night-light. */
   private updateNightLight(dt: number): void {
     const nl = this.view.nightLight;
     const t = this.beatTime;
-    // surfaces (0.6 s), then drifts away downstream, easing up to speed
+    // surfaces (0.6 s) and stays while "...is now its night-light" is read
+    // (the line plays over the crocodile, never over an empty river), then
+    // drifts away downstream, easing up to speed
     nl.visible = clamp01(t / 0.6) * clamp01((nl.x + 1.02) / 0.18);
-    if (t > 0.9) {
+    const tv = this.view.text;
+    if (tv.line === COPY.I5 && tv.lineAlpha > 0.5) this.i5Shown += dt;
+    const lineRead = !COPY.I5 || this.i5Shown >= lineDuration(COPY.I5) * 0.8;
+    if ((lineRead && t > 0.9) || t > Story.NIGHT_LIGHT_HOLD_MAX) {
+      this.driftTime += dt;
       this.driftV = approach(this.driftV, 0.2, 1.2, dt);
       nl.x -= this.driftV * dt;
     }
@@ -1511,6 +1527,8 @@ export class Story {
   static readonly MOON_UP = -0.1;
   /** Tale I: Pip, small, in the far-bank reeds. */
   static readonly CROC_PIP_X = 0.64;
+  /** The night-light waits for its line at most this long (s) before it drifts off anyway. */
+  static readonly NIGHT_LIGHT_HOLD_MAX = 14;
   static readonly CROC_PIP_SCALE = 0.6;
   /** The finale: Pip and the wolf under the moon, the bird between them. */
   static readonly FINALE_PIP_X = -0.47;

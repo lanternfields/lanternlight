@@ -53,13 +53,15 @@ function dress(open: number, full = 0, frames = 40) {
   const { m, actor } = croc(open);
   const o = new CrocOverlay();
   let details = new Sink();
+  let holes = new Sink();
   let glows = new Glows();
   for (let i = 0; i < frames; i++) {
     details = new Sink();
+    holes = new Sink();
     glows = new Glows();
-    o.update(1 / 60, m, actor, 1, open, i / 60, details, new Sink(), glows, full);
+    o.update(1 / 60, m, actor, 1, open, i / 60, details, holes, glows, full);
   }
-  return { m, actor, details, glows };
+  return { m, actor, details, holes, glows };
 }
 
 describe('the arm of a shadow puppet', () => {
@@ -88,10 +90,20 @@ describe('the crocodile your hand becomes', () => {
   it('teeth show only while the jaw is open', () => {
     const shut = dress(0).details.caps.length;
     const wide = dress(1).details.caps.length;
-    // 3 back scutes at most, 2 arm scutes, snout, nostril, brow: no teeth when shut
-    expect(shut).toBeLessThanOrEqual(8);
+    // snout, nostril, eye turret, 4 neck scutes and 4 arm scutes at most: no teeth when shut
+    expect(shut).toBeLessThanOrEqual(11);
     // wide open: at least three more pieces (teeth)
     expect(wide).toBeGreaterThanOrEqual(shut + 3);
+  });
+
+  it('shut, it smiles: a zigzag of small interlocking teeth along the jaw line, gone when the jaw opens', () => {
+    const shut = dress(0).holes.caps;
+    const wide = dress(1).holes.caps;
+    // the eye plus at least four zigzag segments of the smile
+    const smileShut = shut.filter((c) => c.strength > 0.5).length - 1;
+    expect(smileShut).toBeGreaterThanOrEqual(4);
+    // wide open: only the eye (the big teeth take over)
+    expect(wide.filter((c) => c.strength > 0.05).length).toBe(1);
   });
 
   it('one clean snout: a tapered piece along the top, reaching a little past the fingertips', () => {
@@ -103,7 +115,10 @@ describe('the crocodile your hand becomes', () => {
     const len = Math.hypot(ax, ay);
     // its far end lies beyond the fingertips along the snout axis
     const reach = ((snout.bx - actor.knuckleS) * ax + (snout.by - actor.knuckleT) * ay) / len;
-    expect(reach).toBeGreaterThan(len * 0.95);
+    expect(reach).toBeGreaterThan(len * 1.1);
+    // ...and it starts behind the knuckles (no step there)
+    const back = ((snout.ax - actor.knuckleS) * ax + (snout.ay - actor.knuckleT) * ay) / len;
+    expect(back).toBeLessThan(0);
   });
 
   it('swallowed fireflies glow inside the head, not out along the arm', () => {
