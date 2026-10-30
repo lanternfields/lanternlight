@@ -603,19 +603,26 @@
     // comes in); then the hand comes up, so the giant never grows under the ribbon
     yield* until(() => !!S().view.text.line, 2);
     yield* until(() => S().wolf.state !== 'away' && S().wolf.x < 0.6 && !S().view.text.line && S().lineQueue.length === 0, 16);
+    // the scare has landed (or the tale has moved on): the wolf rears, flees,
+    // is gone, or is back to sing (a scare can land in under a frame of polling)
+    const scared = () => S().scene !== 'wolf' || ['rear', 'flee', 'away', 'return', 'howl', 'rest'].includes(S().wolf.state);
     setPose('open', 0.6);
     orient(60, 0, 0);
     ctl.tau = 0.4;
     ctl.size = 1;
     // above and right of where the wolf will stop, so the wolf stays in clear light
     shadowTo(0.34, 0.16, { size: 1 });
-    yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.46, 10);
-    // grow: a slow, continuous swell (the wolf hesitates as it builds) - the
-    // inset shows why: the hand comes back toward you
-    setShot('inset', 1, 0.35);
-    ctl.tau = 0.5;
-    shadowTo(0.34, 0.16, { size: 1.5 });
-    yield* until(() => S().wolf.state === 'rear' || S().wolf.state === 'flee', 8);
+    // the lines read first, so by now the wolf may already sit by Pip: don't
+    // wait for it to be prowling, only for the hand to settle in the light
+    yield* wait(0.8);
+    if (!scared()) {
+      // grow: a slow, continuous swell (the wolf hesitates as it builds) - the
+      // inset shows why: the hand comes back toward you
+      setShot('inset', 1, 0.35);
+      ctl.tau = 0.5;
+      shadowTo(0.34, 0.16, { size: 1.5 });
+      yield* until(scared, 8);
+    }
     mark('wolf-scared');
     yield* wait(0.6);
     setShot('inset', 0, 0.4);
