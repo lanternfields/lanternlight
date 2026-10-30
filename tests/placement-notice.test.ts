@@ -12,7 +12,8 @@ describe('the honest notice when the wall in front cannot take the stage', () =>
     expect(blockedNotice('scroll', 'wall-covered:invisiblewallface')).toBe(COPY.NOTICE_BLOCKED_BUSY);
     expect(blockedNotice('scroll', 'wall-occluded')).toBe(COPY.NOTICE_BLOCKED_FURNITURE);
     expect(blockedNotice('scroll', 'wall-too-small')).toBe(COPY.NOTICE_BLOCKED_SMALL);
-    for (const k of ['WINDOW', 'SCREEN', 'MIRROR', 'SHELF', 'BUSY', 'FURNITURE', 'SMALL'] as const) {
+    expect(blockedNotice('scroll', 'wall-off-axis')).toBe(COPY.NOTICE_BLOCKED_SIDE);
+    for (const k of ['WINDOW', 'SCREEN', 'MIRROR', 'SHELF', 'BUSY', 'FURNITURE', 'SMALL', 'SIDE'] as const) {
       expect(COPY[`NOTICE_BLOCKED_${k}`]).toMatch(/Try another wall\.$/);
     }
   });

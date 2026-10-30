@@ -10,6 +10,7 @@ export function blockedNotice(kind: 'wall' | 'scroll', reason: string): string {
   if (kind !== 'scroll') return '';
   if (reason === 'wall-occluded') return COPY.NOTICE_BLOCKED_FURNITURE;
   if (reason === 'wall-too-small') return COPY.NOTICE_BLOCKED_SMALL;
+  if (reason === 'wall-off-axis') return COPY.NOTICE_BLOCKED_SIDE;
   if (reason.startsWith('wall-covered')) {
     const labels = reason.includes(':') ? reason.slice(reason.indexOf(':') + 1).split(',') : [];
     if (labels.some((l) => l === 'window' || l === 'windowframe')) return COPY.NOTICE_BLOCKED_WINDOW;

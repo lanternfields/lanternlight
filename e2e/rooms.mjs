@@ -139,7 +139,8 @@ async function runSeat(room, seat, yaw, mode) {
   const reason = st.reason || '';
   const labels = reason.startsWith('wall-covered:') ? reason.slice(13).split(',') : [];
   const genuine = st.kind === 'scroll' && (reason === 'wall-occluded' || (labels.length > 0 && labels.every((l) => GENUINE.has(l))));
-  const prompted = st.kind === 'scroll' && noticeAtPlace !== '' && noticeAtPlace !== 'turn';
+  const noticeEnd = s.notice || '';
+  const prompted = st.kind === 'scroll' && [noticeAtPlace, noticeEnd].some((n) => n !== '' && n !== 'turn');
   const r = {
     mode,
     room,
@@ -150,7 +151,7 @@ async function runSeat(room, seat, yaw, mode) {
     reason,
     genuine,
     prompted,
-    notice: noticeAtPlace.replace(/\n/g, ' / '),
+    notice: (noticeAtPlace && noticeAtPlace !== 'turn' ? noticeAtPlace : noticeEnd).replace(/\n/g, ' / '),
     turnDeg: placed.turnDeg ? Math.round(placed.turnDeg) : 0,
     distance: st.distance,
     height: st.height,
@@ -187,12 +188,13 @@ const onWall = walls.filter((r) => r.kind === 'wall').length;
 const wallFails = walls.filter((r) => r.kind !== 'wall');
 const genuine = wallFails.filter((r) => r.genuine).length;
 const unblocked = walls.filter((r) => !r.genuine);
-const aPass = unblocked.filter((r) => r.kind === 'wall' || (r.reason === 'wall-too-small' && r.prompted)).length;
-const blocked = wallFails.filter((r) => r.genuine || r.reason === 'wall-too-small');
+const HONEST = new Set(['wall-too-small', 'wall-off-axis']);
+const aPass = unblocked.filter((r) => r.kind === 'wall' || (HONEST.has(r.reason) && r.prompted)).length;
+const blocked = wallFails.filter((r) => r.genuine || HONEST.has(r.reason));
 const bPass = blocked.filter((r) => r.prompted).length;
 const cRate = walls.length ? onWall / walls.length : 1;
 if (aPass < unblocked.length) {
-  console.log('WALLS-A', `${aPass} of ${unblocked.length} seats without a genuine blocker got a wall stage (or an honest prompt for a too-small wall)`);
+  console.log('WALLS-A', `${aPass} of ${unblocked.length} seats without a genuine blocker got a wall stage (or an honest prompt: wall too small, or usable only too far to the side)`);
   failures++;
 }
 if (bPass < blocked.length) {

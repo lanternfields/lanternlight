@@ -9,6 +9,7 @@ import {
   chooseLantern,
   chooseStage,
   normalizeLabel,
+  withMergedWalls,
 } from '../src/core/stage-placement.js';
 
 /** Vertical rectangle on the plane z = zWall (normal +Z), x in [x0,x1], y in [y0,y1]. */
@@ -441,5 +442,40 @@ describe('a wall a little off to the side: a nudge to turn', () => {
     const p = chooseStage([wall, win], eye, fwd);
     expect(p.kind).toBe('scroll');
     expect(p.turnDeg).toBe(0);
+  });
+});
+
+describe('one wall the scan split into pieces', () => {
+  it('touching coplanar segments are merged into one candidate; the originals stay', () => {
+    const a = wallZ('a', -2, -1.5, -0.3, 0, 2.6);
+    const b = wallZ('b', -2, -0.3, 0.4, 0, 2.6);
+    const c = wallZ('c', -2, 0.45, 1.5, 0, 2.6, 'wall', -1); // a small gap, normal flipped
+    const far = wallZ('far', -2.5, 2, 3, 0, 2.6); // another plane: not merged
+    const out = withMergedWalls([a, b, c, far]);
+    expect(out.length).toBe(5);
+    const m = out[4];
+    expect(m.id).toBe('a+b+c');
+    const xs = m.points.map((q) => q.x);
+    expect(Math.min(...xs)).toBeCloseTo(-1.5, 5);
+    expect(Math.max(...xs)).toBeCloseTo(1.5, 5);
+    for (const q of m.points) expect(q.z).toBeCloseTo(-2, 5);
+  });
+  it('segments too small alone carry the stage together', () => {
+    const pieces = [wallZ('a', -2, -1.2, -0.4, 0, 2.6), wallZ('b', -2, -0.4, 0.4, 0, 2.6), wallZ('c', -2, 0.4, 1.2, 0, 2.6)];
+    const alone = chooseStage([pieces[1]], head, fwd);
+    expect(alone.kind).toBe('scroll');
+    const p = chooseStage(pieces, head, fwd);
+    expect(p.kind).toBe('wall');
+    expect(p.frame.height * p.frame.aspect).toBeGreaterThan(0.8);
+  });
+  it('a short piece only lends the height it covers', () => {
+    const out = withMergedWalls([wallZ('a', -2, -1, 0, 0, 2.6), wallZ('b', -2, 0, 1, 0.9, 2.6)]);
+    const ys = out[2].points.map((q) => q.y);
+    expect(Math.min(...ys)).toBeCloseTo(0.9, 5);
+    expect(Math.max(...ys)).toBeCloseTo(2.6, 5);
+  });
+  it('a gap wider than 12 cm is not bridged', () => {
+    const out = withMergedWalls([wallZ('a', -2, -1, 0, 0, 2.6), wallZ('b', -2, 0.2, 1, 0, 2.6)]);
+    expect(out.length).toBe(2);
   });
 });

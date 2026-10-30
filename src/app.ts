@@ -805,11 +805,8 @@ export class App {
       const fx = this.headForward.x;
       const fz = this.headForward.z;
       const cos = (sx * fx + sz * fz) / ((Math.hypot(sx, sz) || 1) * (Math.hypot(fx, fz) || 1));
-      if (cos > Math.cos((15 * Math.PI) / 180)) {
-        this.turnDir = 0;
-        // re-aim the stage and its light from where the viewer now faces
-        this.requestReplace();
-      }
+      // (the stage stays where it is: its light is aimed for a hand held toward it)
+      if (cos > Math.cos((15 * Math.PI) / 180)) this.turnDir = 0;
     }
     this.turnArrow.update(this.turnDir, this.flameW, { x: -this.headForward.z, z: this.headForward.x }, time, dt);
     // on the scroll because the wall was blocked: once the viewer turns to

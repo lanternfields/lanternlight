@@ -252,6 +252,7 @@ export function chooseStage(
   const fwd = horizontalForward(forward);
   if (planes.length === 0 && obstacles.length === 0) return scrollPlacement(head, forward, opts, 'no-planes');
   const scrollLimit = clearDistanceAhead(head, fwd, planes, obstacles);
+  planes = withMergedWalls(planes);
   const cosMax = Math.cos((opts.maxFacingDeg * Math.PI) / 180);
   let best: StagePlacement | null = null;
   // the reason reported is the most promising wall's (the one most squarely
@@ -522,6 +523,80 @@ export function wallsInRange(planes: readonly PlaneInfo[], head: Readonly<V3>, f
     if (D >= opts.minDistance && D <= opts.maxDistance && -dot(fwd, n) >= cosMax) count++;
   }
   return count;
+}
+
+/**
+ * Adds, for each run of wall segments that lie in one plane and touch (or
+ * nearly: gaps under 12 cm), one merged wall spanning them all (over the height
+ * they all cover), so a stage may span a wall the scan split into pieces. The
+ * originals stay as candidates.
+ */
+export function withMergedWalls(planes: readonly PlaneInfo[]): PlaneInfo[] {
+  const walls: { p: PlaneInfo; n: V3; d: number; t: V3; r0: number; r1: number; y0: number; y1: number }[] = [];
+  for (const p of planes) {
+    if (p.orientation === 'horizontal' || Math.abs(p.normal.y) > 0.3 || p.points.length < 3) continue;
+    if (!WALL_LABELS.has(normalizeLabel(p.label))) continue;
+    const n = new V3(p.normal.x, 0, p.normal.z);
+    normalize(n, n);
+    const t = new V3(-n.z, 0, n.x);
+    let r0 = Infinity;
+    let r1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const q of p.points) {
+      const r = q.x * t.x + q.z * t.z;
+      r0 = Math.min(r0, r);
+      r1 = Math.max(r1, r);
+      y0 = Math.min(y0, q.y);
+      y1 = Math.max(y1, q.y);
+    }
+    walls.push({ p, n, d: p.points[0].x * n.x + p.points[0].z * n.z, t, r0, r1, y0, y1 });
+  }
+  const out = planes.slice();
+  const used = new Set<number>();
+  for (let i = 0; i < walls.length; i++) {
+    if (used.has(i)) continue;
+    const a = walls[i];
+    const group = [a];
+    let r0 = a.r0;
+    let r1 = a.r1;
+    let y0 = a.y0;
+    let y1 = a.y1;
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (let j = i + 1; j < walls.length; j++) {
+        if (used.has(j)) continue;
+        const b = walls[j];
+        const same = b.n.x * a.n.x + b.n.z * a.n.z;
+        if (Math.abs(same) < 0.996) continue; // within ~5 degrees
+        const sign = same > 0 ? 1 : -1;
+        if (Math.abs(b.d * sign - a.d) > 0.05) continue; // the same plane
+        const br0 = sign > 0 ? b.r0 : -b.r1;
+        const br1 = sign > 0 ? b.r1 : -b.r0;
+        if (br0 > r1 + 0.12 || br1 < r0 - 0.12) continue; // not touching
+        // only the height every piece covers counts (never wall that isn't there)
+        if (Math.min(y1, b.y1) - Math.max(y0, b.y0) < 0.5) continue;
+        used.add(j);
+        group.push(b);
+        r0 = Math.min(r0, br0);
+        r1 = Math.max(r1, br1);
+        y0 = Math.max(y0, b.y0);
+        y1 = Math.min(y1, b.y1);
+        grew = true;
+      }
+    }
+    if (group.length < 2) continue;
+    const c = (r: number, y: number): V3 => new V3(a.n.x * a.d + a.t.x * r, y, a.n.z * a.d + a.t.z * r);
+    out.push({
+      id: group.map((g) => g.p.id).join('+'),
+      orientation: 'vertical',
+      label: a.p.label,
+      normal: new V3(a.p.normal.x, a.p.normal.y, a.p.normal.z),
+      points: [c(r0, y0), c(r1, y0), c(r1, y1), c(r0, y1)],
+    });
+  }
+  return out;
 }
 
 /**

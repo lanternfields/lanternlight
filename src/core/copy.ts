@@ -72,6 +72,7 @@ export interface Copy {
   NOTICE_BLOCKED_BUSY: string;
   NOTICE_BLOCKED_FURNITURE: string;
   NOTICE_BLOCKED_SMALL: string;
+  NOTICE_BLOCKED_SIDE: string;
 }
 
 /** The script: STORY_V2.md section 3, verbatim (approved 2026-10-28). */
@@ -124,6 +125,7 @@ export const COPY: Copy = {
   NOTICE_BLOCKED_BUSY: 'This wall is busy.\nTry another wall.',
   NOTICE_BLOCKED_FURNITURE: 'Furniture is here.\nTry another wall.',
   NOTICE_BLOCKED_SMALL: 'Not enough wall.\nTry another wall.',
+  NOTICE_BLOCKED_SIDE: 'Too far sideways.\nTry another wall.',
   FINGER: ['Hold one finger\nvery still', 'Hold up one pointing finger\nand keep it still so the bird can land'],
 };
 
