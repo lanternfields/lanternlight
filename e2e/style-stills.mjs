@@ -86,6 +86,9 @@ await page.evaluate(() => {
   window.__lantern.app.requestReplace();
   window.__lantern.goto('intro');
 });
+// (tuning: CROC_ORIENT="pitch,yaw,roll" overrides the crocodile's hand orientation)
+if (process.env.CROC_ORIENT) await page.evaluate((o) => (window.__CROC_ORIENT = o.split(',').map(Number)), process.env.CROC_ORIENT);
+if (process.env.CROC_TUNE) await page.evaluate((o) => (window.__CROC_TUNE = o.split(';').map((t) => t.split(',').map(Number))), process.env.CROC_TUNE);
 await page.addScriptTag({ path: path.join(here, 'capture', 'director.js') });
 await page.waitForTimeout(400);
 await page.evaluate((c) => {

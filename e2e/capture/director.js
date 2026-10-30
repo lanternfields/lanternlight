@@ -104,7 +104,7 @@
   };
   const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
   /** The crocodile's hand orientation (pitch, yaw, roll; IWER degrees, relative to the stage). */
-  const CROC_ORIENT = [24, -90, 90];
+  const CROC_ORIENT = Array.isArray(window.__CROC_ORIENT) ? window.__CROC_ORIENT : [70, -105, 90];
 
   // ---------------------------------------------------------- pose blending
   const decomp = {};
@@ -961,6 +961,101 @@
     yield* wait(0.5);
   }
 
+  /**
+   * What the shared arm does to the other tales (art review): the rabbit's
+   * ears, the bridge, the wolf's giant at its peak, the finale's finger with
+   * the bird perched.
+   */
+  function* armStills() {
+    goto('intro');
+    setPose('relaxed', 0.1);
+    rest();
+    yield* until(() => S().beat === 'wave', 20);
+    yield* wait(0.6);
+    setPose('open', 0.8);
+    orient(60, 0, 0);
+    ctl.tau = 0.35;
+    shadowTo(0.04, 0.02);
+    yield* until(() => S().beat === 'rabbitHint', 15);
+    yield* wait(0.4);
+    setPose('peace', 0.5);
+    yield* until(() => S().stats.rabbitBirths > 0, 20);
+    yield* wait(1.3);
+    yield* shoot('arm-rabbit-ears');
+    ctl.tau = 0.16;
+    // the bridge
+    setPose('relaxed', 0.5);
+    rest();
+    goto('bridge');
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(0.4);
+    setPose('bridgeFan', 0.6);
+    orient(-22, 90, BRIDGE_ROLL);
+    ctl.tau = 0.3;
+    shadowTo(0.0, -0.358, { feature: 'handTop', size: 1.0 });
+    yield* until(() => S().rabbit.onShadow, 12);
+    yield* wait(0.3);
+    yield* shoot('arm-bridge');
+    ctl.tau = 0.16;
+    // the wolf's giant, at its peak
+    setPose('relaxed', 0.5);
+    rest();
+    goto('wolf');
+    yield* until(() => !S().view.title.id, 5);
+    yield* until(() => S().wolf.state === 'prowl' && S().wolf.x < 0.56, 12);
+    setPose('open', 0.5);
+    orient(60, 0, 0);
+    ctl.tau = 0.4;
+    shadowTo(0.34, 0.16, { size: 1 });
+    yield* until(() => S().wolf.x < 0.46 || S().wolf.state !== 'prowl', 10);
+    ctl.tau = 0.5;
+    shadowTo(0.34, 0.16, { size: 1.5 });
+    yield* until(() => S().wolf.state === 'rear', 8);
+    yield* wait(0.1);
+    yield* shoot('arm-wolf-giant');
+    ctl.tau = 0.75;
+    rest();
+    setPose('relaxed', 0.9);
+    ctl.size = 1;
+    // the finale: one finger held still, the bird perched on it
+    goto('finale');
+    yield* until(() => !S().view.title.id, 5);
+    yield* wait(1.0);
+    setPose('pointUp', 0.6);
+    orient(60, 0, 0);
+    ctl.tau = 0.42;
+    shadowTo(-0.06, -0.14, { feature: 'tip', size: 1 });
+    yield* wait(0.9);
+    ctl.still = true;
+    yield* until(() => S().beat === 'perched', 14);
+    yield* wait(0.8);
+    yield* shoot('arm-finale-perch');
+    ctl.still = false;
+  }
+
+  /** Tuning: the open crocodile at several hand orientations (window.__CROC_TUNE = [[p, y, r], ...]). */
+  function* crocTune() {
+    setPose('relaxed', 0.4);
+    rest();
+    yield* wait(0.5);
+    goto('croc');
+    yield* until(() => !S().view.title.id, 4);
+    setPose('crocOpen', 0.5);
+    ctl.tau = 0.3;
+    shadowTo(0.06, -0.05, { feature: 'mouth', size: 1.1 });
+    for (const o of window.__CROC_TUNE || [CROC_ORIENT]) {
+      orient(...o);
+      yield* wait(1.4);
+      yield* shoot(`tune_${o.join('_')}`);
+    }
+  }
+
+  /** The crocodile and arm review stills in one run. */
+  function* compareStills() {
+    yield* armStills();
+    yield* crocStills();
+  }
+
   applyBlend();
   let gen = null;
   let done = false;
@@ -968,7 +1063,7 @@
     marks,
     start(name = 'coreLoop') {
       if (name !== 'coreLoop') shotCh.wide.from = shotCh.wide.to = 0;
-      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale, crocStills, finaleClip, bridgeTune }[name]();
+      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale, crocStills, crocTune, armStills, compareStills, finaleClip, bridgeTune }[name]();
       gen.next(0);
       done = false;
       time = 0;
