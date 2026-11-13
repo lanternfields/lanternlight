@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { V3 } from '../src/core/math.js';
-import { computeFocalLight, createProjected, createStageFrame, nominalHandPoint, orientStage, projectToStage, stageHeightForDistance } from '../src/core/projection.js';
+import { NOMINAL_PENUMBRA, relativePenumbra, computeFocalLight, createProjected, createStageFrame, nominalHandPoint, orientStage, projectToStage, stageHeightForDistance } from '../src/core/projection.js';
 import { ShadowModel } from '../src/core/shadow-model.js';
 import { createHandFrame } from '../src/core/hand-model.js';
 import { POSES, makeHand } from './fixtures/synthetic-hand.js';
@@ -39,6 +39,9 @@ function feed(sb: SizeBeat, seconds: number, size: number | null, gentle = false
 describe('size beat: the thresholds come from the real range of sizeRatio', () => {
   /** A real (synthetic) open hand's sizeRatio, `back` metres nearer the viewer than the comfortable hold. */
   function sizeAt(wall: number, back: number): number {
+    return modelAt(wall, back).actors[1].sizeRatio;
+  }
+  function modelAt(wall: number, back: number): ShadowModel {
     const head = new V3(0, 1.2, 0);
     const st = createStageFrame();
     st.origin.set(0, 1.2, -wall);
@@ -57,7 +60,7 @@ describe('size beat: the thresholds come from the real range of sizeRatio', () =
     const hand = makeHand(POSES.open, { position: new V3(wrist.x, wrist.y, wrist.z + back) });
     m.build([createHandFrame('left'), hand], [], light, st, DT);
     expect(m.actors[1].present).toBe(true);
-    return m.actors[1].sizeRatio;
+    return m;
   }
 
   it('on an ordinary wall: ~15-20 cm back toward you is clearly big, ~10 cm toward the wall clearly small', () => {
@@ -69,6 +72,24 @@ describe('size beat: the thresholds come from the real range of sizeRatio', () =
       expect(sizeAt(wall, 0.2)).toBeGreaterThan(SIZE_BIG_ON);
       expect(sizeAt(wall, -0.12)).toBeLessThan(SIZE_SMALL_ON);
     }
+  });
+
+  it('the shadow is big and soft near you, small and sharp by the wall (the comfortable hold just under the cap)', () => {
+    for (const wall of [0.8, 1.5, 2.2, 3.2]) {
+      const near = modelAt(wall, 0.2).penumbra;
+      const rest = modelAt(wall, 0).penumbra;
+      const far = modelAt(wall, -0.12).penumbra;
+      expect(rest).toBeCloseTo(NOMINAL_PENUMBRA, 3);
+      expect(near).toBeGreaterThan(rest);
+      expect(far).toBeLessThan(rest * 0.9);
+      for (const p of [near, rest, far]) {
+        expect(p).toBeGreaterThanOrEqual(0.004);
+        expect(p).toBeLessThanOrEqual(0.01);
+      }
+    }
+    expect(relativePenumbra(1, 2.5)).toBeCloseTo(NOMINAL_PENUMBRA, 6);
+    expect(relativePenumbra(0.2, 2.5)).toBe(0.004);
+    expect(relativePenumbra(5, 2.5)).toBe(0.01);
   });
 
   it('on a near wall (a less sensitive, small stage) the relaxed thresholds are still in easy reach', () => {

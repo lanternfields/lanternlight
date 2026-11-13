@@ -212,6 +212,23 @@ export function penumbraWidth(
   return clamp(w, 0.004, 0.01);
 }
 
+/** The hand's penumbra when comfortably held (stage units): a little under the legibility cap. */
+export const NOMINAL_PENUMBRA = 0.009;
+
+/**
+ * The cast shadow's soft edge from how near the light the hand is, relative to
+ * a comfortably held hand (sizeRatio 1). The physical penumbra grows with
+ * (m - 1), m the light-distance magnification, so a hand near you casts a big,
+ * soft shadow and one reaching for the wall a small, sharp one. (The absolute
+ * penumbraWidth is at its legibility cap for a comfortable hand on almost every
+ * real stage, so it never visibly changed with size.) Bounded like it.
+ */
+export function relativePenumbra(sizeRatio: number, nominalMagnification: number): number {
+  const m0 = Math.max(1.01, nominalMagnification);
+  const rel = Math.max(0, sizeRatio * m0 - 1) / (m0 - 1);
+  return clamp(NOMINAL_PENUMBRA * rel, 0.004, 0.01);
+}
+
 /** Angular stage sizing so the stage fits a comfortable, FoV-aware window. */
 export function stageHeightForDistance(
   distance: number,

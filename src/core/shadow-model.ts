@@ -28,8 +28,8 @@ import {
   Projected,
   StageFrame,
   createProjected,
-  penumbraWidth,
   projectToStage,
+  relativePenumbra,
 } from './projection.js';
 
 export interface Capsule2D {
@@ -475,9 +475,6 @@ export class ShadowModel {
       actor.palm[k * 2] = p.s;
       actor.palm[k * 2 + 1] = p.t;
     }
-    let magSum0 = 0;
-    for (let i = 0; i < 25; i++) magSum0 += pj[i].valid ? pj[i].magnification : 0;
-    actor.palmSoft = penumbraWidth(magSum0 / 25, stage, this.flameRadius);
 
     this.finishBounds(actor);
     this.handCentroid(actor);
@@ -503,6 +500,8 @@ export class ShadowModel {
       magN++;
     }
     actor.sizeRatio = magN ? magSum / magN / Math.max(1.01, this.nominalMagnification) : 1;
+    // big and soft near you, small and sharp by the wall
+    actor.palmSoft = relativePenumbra(actor.sizeRatio, this.nominalMagnification);
 
     const up = pj[J.indexTip];
     const mid = pj[J.middleTip];
@@ -572,7 +571,6 @@ export class ShadowModel {
     }
     actor.capsuleCount = this.capsuleCount - start;
     actor.palmValid = false;
-    actor.palmSoft = penumbraWidth(this.pa.valid ? this.pa.magnification : 2, stage, this.flameRadius);
     if (actor.capsuleCount < 3) {
       this.markAbsent(actor);
       return;
@@ -606,6 +604,7 @@ export class ShadowModel {
     // the puppet body's magnification (orientation independent)
     projectToStage(rod.position, light, stage, this.pa);
     actor.sizeRatio = this.pa.valid ? this.pa.magnification / Math.max(1.01, this.nominalMagnification) : 1;
+    actor.palmSoft = relativePenumbra(actor.sizeRatio, this.nominalMagnification);
     void this.tmpC;
   }
 
