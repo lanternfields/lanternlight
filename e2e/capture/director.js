@@ -383,6 +383,8 @@
   /** Where the big-and-small beat's shadow sits: a little right of centre, clear of Pip on the left. */
   const SIZE_SHADOW = [0.2, 0.05];
   const S = () => app().story;
+  /** The app's copy table (src/core/copy.ts): every on-stage word. */
+  const copy = () => window.__lantern.copy;
   function* wait(sec) {
     let t = 0;
     while (t < sec) t += yield;
@@ -494,12 +496,13 @@
   }
 
   /**
-   * The big-and-small beat: while "Bring your hand near you..." reads, the
+   * The big-and-small beat: while P4 ("Pull your hand back...") reads, the
    * hand comes up beside Pip (Pip waits on the left, away from a right arm),
-   * then comes back toward you: the shadow swells to fill the stage, soft
-   * edged, and Pip ducks. "Now reach for the wall...": the hand reaches out,
-   * the shadow is small and sharp, and Pip hops up beside it. The inset shows
-   * why: the hand moving toward you and away.
+   * then comes back toward you: the shadow swells to fill the stage and Pip
+   * ducks. P5 ("Now reach for the wall..."): the hand reaches out, the shadow
+   * shrinks, its edge a little sharper, and Pip hops up beside it. The inset
+   * shows why: the hand moving toward you and away. (Lines are matched by the
+   * app's own copy table, so a rewording can't leave a wait timing out.)
    */
   function* sizeBeat() {
     yield* until(() => S().beat === 'size', 20);
@@ -509,7 +512,7 @@
     ctl.tau = 0.35;
     ctl.size = 1;
     shadowTo(SIZE_SHADOW[0], SIZE_SHADOW[1], { size: 1 });
-    yield* until(() => (S().view.text.line || '').startsWith('Bring your hand') && S().view.text.lineAlpha > 0.95, 4);
+    yield* until(() => S().view.text.line === copy().P4 && S().view.text.lineAlpha > 0.95, 4);
     yield* wait(1.3);
     setShot('inset', 1, 0.35);
     ctl.tau = 0.55;
@@ -519,7 +522,7 @@
     yield* wait(0.9);
     yield* shoot('size-big');
     // the storyteller's next line, then the reach for the wall
-    yield* until(() => (S().view.text.line || '').startsWith('Now reach') && S().view.text.lineAlpha > 0.95, 6);
+    yield* until(() => S().view.text.line === copy().P5 && S().view.text.lineAlpha > 0.95, 6);
     yield* wait(0.5);
     shadowTo(SIZE_SHADOW[0], SIZE_SHADOW[1], { size: 0.84 });
     yield* until(() => S().bigSmall.phase === 'done', 6);
@@ -856,7 +859,7 @@
     yield* shoot('text-line-pip');
     setPose('relaxed', 0.6);
     rest();
-    yield* until(() => S().scene === 'menu' && S().view.text.line === 'Three stories tonight, then bed.' && S().view.text.lineAlpha > 0.99, 15);
+    yield* until(() => S().scene === 'menu' && S().view.text.line === copy().H1 && S().view.text.lineAlpha > 0.99, 15);
     yield* shoot('text-line-menu');
     goto('croc');
     yield* wait(1.3);

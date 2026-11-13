@@ -11,6 +11,7 @@ import projectOptions from 'virtual:iwsdk-project';
 import { App, BUILD } from './app.js';
 import { HandVisualSystem, InputCaptureSystem, ShowSystem, bindApp } from './systems.js';
 import type { SceneId } from './core/story.js';
+import { COPY, type Copy } from './core/copy.js';
 
 declare global {
   interface Window {
@@ -20,6 +21,8 @@ declare global {
       goto: (scene: SceneId) => void;
       begin: () => void;
       settings: (patch: Record<string, unknown>) => void;
+      /** The copy table (the capture director waits for lines by their words). */
+      copy: Copy;
     };
   }
 }
@@ -125,5 +128,6 @@ async function start(world: World): Promise<void> {
     goto: (scene) => app.goto(scene),
     begin: startXR,
     settings: (patch) => app.updateSettings(patch as never),
+    copy: COPY,
   };
 }
