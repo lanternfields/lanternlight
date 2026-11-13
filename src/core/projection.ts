@@ -218,10 +218,11 @@ export const NOMINAL_PENUMBRA = 0.009;
 /**
  * The cast shadow's soft edge from how near the light the hand is, relative to
  * a comfortably held hand (sizeRatio 1). The physical penumbra grows with
- * (m - 1), m the light-distance magnification, so a hand near you casts a big,
- * soft shadow and one reaching for the wall a small, sharp one. (The absolute
- * penumbraWidth is at its legibility cap for a comfortable hand on almost every
- * real stage, so it never visibly changed with size.) Bounded like it.
+ * (m - 1), m the light-distance magnification, so the edge sharpens as the
+ * hand reaches for the wall; near you it reaches the 0.010 legibility cap at a
+ * size of about 1.1, so it hardly softens there. (The absolute penumbraWidth is
+ * at that cap for a comfortable hand on almost every real stage, so it never
+ * visibly changed with size.) Bounded like it.
  */
 export function relativePenumbra(sizeRatio: number, nominalMagnification: number): number {
   const m0 = Math.max(1.01, nominalMagnification);

@@ -21,7 +21,7 @@ single lantern:
 
 | Layer | Channel | Edge |
 | --- | --- | --- |
-| Hands, rod puppets, **ghost hints** | R (cast shadow) | physical penumbra, relative to a comfortably held hand: 0.009 stage units there, softer as the hand comes near you (the light), sharper as it reaches for the wall, in proportion to (magnification − 1); clamped 0.004–0.010 |
+| Hands, rod puppets, **ghost hints** | R (cast shadow) | penumbra relative to a comfortably held hand: 0.009 stage units there, in proportion to (magnification − 1), clamped 0.004–0.010: it sharpens as the hand reaches for the wall, and the 0.010 legibility cap means it hardly softens as the hand comes near you (above a size of about 1.1) |
 | Paper cut-outs (rabbit, wolf, crocodile, scenery, emblems) | G (cut-out) | fixed "paper on the screen" penumbra: **0.0045 stage units** |
 | Holes (eyes, burrow door, shell spiral) | A (hole) | the same as cut-outs |
 | Light (moon, fireflies, sparkles, icon rings) | B (light) | always soft glows; never hard-edged |

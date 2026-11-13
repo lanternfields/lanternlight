@@ -504,7 +504,7 @@ export class ShadowModel {
       magN++;
     }
     actor.sizeRatio = magN ? magSum / magN / Math.max(1.01, this.nominalMagnification) : 1;
-    // big and soft near you, small and sharp by the wall
+    // the edge sharpens a little as the hand reaches for the wall (capped near you)
     actor.palmSoft = relativePenumbra(actor.sizeRatio, this.nominalMagnification);
 
     const up = pj[J.indexTip];
