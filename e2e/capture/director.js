@@ -380,6 +380,8 @@
   };
 
   // ------------------------------------------------------- choreography kit
+  /** Where the big-and-small beat's shadow sits: a little right of centre, clear of Pip on the left. */
+  const SIZE_SHADOW = [0.14, 0.04];
   const S = () => app().story;
   function* wait(sec) {
     let t = 0;
@@ -452,7 +454,11 @@
     ctl.tau = 0.16;
   }
 
-  function* coreLoop() {
+  /**
+   * The prologue, from the dimming to the hub: a hand rises into the light and
+   * waves, makes the rabbit, then the big-and-small beat (sizeBeat).
+   */
+  function* prologue() {
     mark('start');
     setPose('relaxed', 0.1);
     rest();
@@ -484,6 +490,64 @@
     yield* wait(2.2);
     setPose('relaxed', 0.6);
     rest();
+    yield* sizeBeat();
+  }
+
+  /**
+   * The big-and-small beat: while "Bring your hand near you..." reads, the
+   * hand comes up beside Pip (Pip waits on the left, away from a right arm),
+   * then comes back toward you: the shadow swells to fill the stage, soft
+   * edged, and Pip ducks. "Now reach for the wall...": the hand reaches out,
+   * the shadow is small and sharp, and Pip hops up beside it. The inset shows
+   * why: the hand moving toward you and away.
+   */
+  function* sizeBeat() {
+    yield* until(() => S().beat === 'size', 20);
+    mark('size');
+    setPose('open', 0.6);
+    orient(60, 0, 0);
+    ctl.tau = 0.35;
+    ctl.size = 1;
+    shadowTo(SIZE_SHADOW[0], SIZE_SHADOW[1], { size: 1 });
+    yield* until(() => (S().view.text.line || '').startsWith('Bring your hand') && S().view.text.lineAlpha > 0.95, 4);
+    yield* wait(1.3);
+    setShot('inset', 1, 0.35);
+    ctl.tau = 0.55;
+    shadowTo(SIZE_SHADOW[0], SIZE_SHADOW[1], { size: 1.55 });
+    yield* until(() => S().bigSmall.phase !== 'grow', 6);
+    mark('size-big');
+    yield* wait(0.9);
+    yield* shoot('size-big');
+    // the storyteller's next line, then the reach for the wall
+    yield* until(() => (S().view.text.line || '').startsWith('Now reach') && S().view.text.lineAlpha > 0.95, 6);
+    yield* wait(0.5);
+    shadowTo(SIZE_SHADOW[0], SIZE_SHADOW[1], { size: 0.84 });
+    yield* until(() => S().bigSmall.phase === 'done', 6);
+    mark('size-small');
+    yield* wait(1.0);
+    yield* shoot('size-small');
+    setShot('inset', 0, 0.4);
+    yield* wait(0.5);
+    // the hand eases out of the light (never a one-frame vanish)
+    ctl.tau = 0.6;
+    rest();
+    setPose('relaxed', 0.8);
+    yield* until(() => S().scene !== 'intro', 10);
+    ctl.size = 1;
+    ctl.tau = 0.16;
+  }
+
+  /** Just the prologue with its big-and-small beat, to the hub's first line (its own clip). */
+  function* sizeClip() {
+    yield* prologue();
+    yield* until(() => S().scene === 'menu', 12);
+    yield* until(() => !!S().view.text.line, 3);
+    yield* wait(3.0);
+    mark('end');
+  }
+
+  function* coreLoop() {
+    yield* prologue();
     // ---- The Hungry Crocodile
     yield* chooseTale('croc');
     mark('croc');
@@ -1124,8 +1188,8 @@
   window.__director = {
     marks,
     start(name = 'coreLoop') {
-      if (name !== 'coreLoop') shotCh.wide.from = shotCh.wide.to = 0;
-      gen = { coreLoop, stills, wolfClip, openingClip, textStills, crocTale, crocStills, crocTune, armStills, compareStills, finaleClip, bridgeTune }[name]();
+      if (name !== 'coreLoop' && name !== 'sizeClip') shotCh.wide.from = shotCh.wide.to = 0;
+      gen = { coreLoop, sizeClip, stills, wolfClip, openingClip, textStills, crocTale, crocStills, crocTune, armStills, compareStills, finaleClip, bridgeTune }[name]();
       gen.next(0);
       done = false;
       time = 0;
