@@ -1266,7 +1266,9 @@ export class Story {
     }
     // ---- the hint, only after a pause: a ghost hand that grows (or shrinks)
     // beside your shadow, fading out as each swell restarts
-    const hint = sb.phase !== 'done' && sb.stall > PROMPT_PICTOGRAM_AFTER;
+    // (its clock waits while the storyteller still has this phase's line to say)
+    if (this.lineQueue.length > 0) sb.stall = 0;
+    const hint = sb.phase !== 'done' && sb.stall > PROMPT_PICTOGRAM_AFTER + 1;
     this.sizeGhost = approach(this.sizeGhost, hint ? 1 : 0, 2.5, dt);
     const u = (this.time * 0.45) % 1;
     const swell = u * u * (3 - 2 * u);
