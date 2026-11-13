@@ -92,8 +92,21 @@ describe('story: first five minutes', () => {
     expect(story.beat).toBe('rabbitHint');
     ev = run(story, model, 1, () => hand.set(0, 0, 'rabbit'));
     expect(ev).toContain('rabbitBorn');
-    // Rabbit drops to the ground, Pip's line is read in full, and the menu opens.
+    // Rabbit drops to the ground and Pip's line is read in full...
     ev = run(story, model, 7, () => hand.hide());
+    expect(story.beat).toBe('size');
+    expect(Math.abs(story.rabbit.y - GROUND_T)).toBeLessThan(0.02);
+    // ...then your shadow grows big near you, and small again by the wall...
+    const sized = (k: number) => () => {
+      hand.set(0, 0);
+      hand.actor.sizeRatio = k;
+    };
+    run(story, model, 2, sized(1.0));
+    run(story, model, 1.5, sized(1.45));
+    run(story, model, 1.5, sized(0.85));
+    expect(story.bigSmall.phase).toBe('done');
+    // ...and the menu opens.
+    run(story, model, 8, () => hand.hide());
     expect(story.scene).toBe('menu');
     expect(Math.abs(story.rabbit.y - GROUND_T)).toBeLessThan(0.02);
   });
@@ -314,7 +327,8 @@ describe('progress', () => {
     run(story, model, 3);
     run(story, model, 4.5, () => hand.set(0, 0));
     run(story, model, 1, () => hand.set(0, 0, 'rabbit'));
-    run(story, model, 7, () => hand.hide());
+    // (the big-and-small beat's assist completes it without a hand)
+    run(story, model, 7 + 16, () => hand.hide());
     expect(progress.discovered).toContain('rabbit');
     expect(progress.visits).toBe(1);
   });

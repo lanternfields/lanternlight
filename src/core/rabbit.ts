@@ -44,6 +44,8 @@ export class Rabbit {
   /** Squash/stretch for animation (1 = rest; > 1 stretched, < 1 squashed). A damped spring. */
   squash = 1;
   private squashV = 0;
+  /** 0..1 a held crouch (Pip ducking from something big): the body spring eases into it. */
+  hunch = 0;
   /** Anticipation: a short crouch before each hop (STYLE_GUIDE 4.2). */
   crouchTime = 0.085;
   private crouching = -1;
@@ -89,6 +91,7 @@ export class Rabbit {
     this.crouching = -1;
     this.squash = 1;
     this.squashV = 0;
+    this.hunch = 0;
   }
 
   private ground(w: RabbitWorld, x: number, maxY: number, stepUp: number): Ground {
@@ -100,7 +103,7 @@ export class Rabbit {
     ev.hopped = ev.landed = ev.landedOnShadow = ev.splashed = ev.reachedHome = ev.peering = false;
     // squash & stretch on a springy body: impulses at take-off and landing,
     // a slight overshoot as it recovers (no snapping)
-    const target = this.crouching >= 0 ? 0.8 : 1;
+    const target = this.crouching >= 0 ? 0.8 : 1 - 0.24 * this.hunch;
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     const h = dt / steps;
     for (let i = 0; i < steps; i++) {

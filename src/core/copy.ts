@@ -20,6 +20,12 @@ export interface Copy {
   P1: string;
   P2: string;
   P3: string;
+  /**
+   * The prologue's big-and-small beat (added 2026-11-12, after P3): your shadow
+   * grows as your hand comes near you, and is small again by the wall.
+   */
+  P4: string;
+  P5: string;
   H1: string;
   H2: string;
   H3: string;
@@ -57,6 +63,8 @@ export interface Copy {
   SNAP: Prompt;
   BRIDGE: Prompt;
   CLOSER: Prompt;
+  /** The big-and-small beat's second half: back toward the wall, smaller. */
+  FARTHER: Prompt;
   BIG: Prompt;
   FINGER: Prompt;
   /** A one-line system notice under the stage while Quest's room capture starts. */
@@ -80,6 +88,8 @@ export const COPY: Copy = {
   P1: 'Out in the night, everyone\nis looking for a little light.',
   P2: 'There you are.',
   P3: 'This is Pip. Pip is small,\nand the night is very large.',
+  P4: 'Bring your hand near you,\nand your shadow grows…',
+  P5: "Now reach for the wall,\nand it's Pip-sized again.",
   H1: 'Three stories tonight,\nthen bed.',
   H2: 'Another? All right.',
   H3: 'Just one more, then.',
@@ -114,6 +124,7 @@ export const COPY: Copy = {
   SNAP: ['Open wide… and snap', 'Open your hand like jaws,\nthen snap it shut on a firefly'],
   BRIDGE: ['Lie flat.\nBe the bridge.', 'Hold your hand flat and sideways\nso its shadow spans the river'],
   CLOSER: ['Bring it closer\nto you', 'Bring your hand back toward you:\nits shadow grows bigger'],
+  FARTHER: ['Reach toward\nthe wall', 'Reach your hand out toward the wall:\nits shadow shrinks back down'],
   BIG: ['Be bigger\nthan the wolf', 'Bring your hand back toward you,\nor raise both hands to make your shadow big'],
   NOTICE_ROOM: "Let's find\nyour walls",
   NOTICE_TURN_LEFT: 'Turn a little\nto your left',

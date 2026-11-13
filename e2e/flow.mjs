@@ -47,7 +47,8 @@ try {
   await shot(page, `${room}-03-rabbit-born`);
   step('rabbit born');
   await setHand(page, { ...r.hand, pose: 'open', y: 0.8, x: 0.3 });
-  await waitFor(page, `(s) => s.scene === 'menu'`, 20000);
+  // (with the hand out of the light, the big-and-small beat's assist completes it)
+  await waitFor(page, `(s) => s.scene === 'menu'`, 45000);
   await page.waitForTimeout(1500);
   await shot(page, `${room}-04-menu`);
   step('menu');

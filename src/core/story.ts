@@ -18,6 +18,7 @@ import { clamp01, easeInCubic, easeInOutSine } from './ease.js';
 import { PoseId } from './hand-features.js';
 import { Wolf, WolfState } from './wolf.js';
 import { COPY, Prompt } from './copy.js';
+import { SizeBeat } from './size-beat.js';
 
 export type SceneId = 'intro' | 'menu' | 'croc' | 'bridge' | 'wolf' | 'finale';
 export type TaleId = 'croc' | 'bridge' | 'wolf';
@@ -1025,7 +1026,22 @@ export class Story {
    * then, so a hand pulled back toward the body never opens the menu by accident.
    */
   get sizeBeat(): boolean {
-    return (this.scene === 'bridge' && this.beat === 'cross' && this.round >= 1) || (this.scene === 'wolf' && this.beat === 'scare');
+    return (
+      (this.scene === 'intro' && this.beat === 'size') ||
+      (this.scene === 'bridge' && this.beat === 'cross' && this.round >= 1) ||
+      (this.scene === 'wolf' && this.beat === 'scare')
+    );
+  }
+
+  /**
+   * The shadow's size for the prologue's big-and-small beat: the biggest hand
+   * or puppet in the light (no two-hand bonus: the motion is what counts), or
+   * null when none is.
+   */
+  shadowSize(model: ShadowModel): number | null {
+    let best = -1;
+    for (const a of model.actors) if (a.present && this.actorInPool(a)) best = Math.max(best, a.sizeRatio);
+    return best < 0 ? null : best;
   }
 
   private rabbitPoseSeen(model: ShadowModel): Actor | null {
@@ -1111,21 +1127,164 @@ export class Story {
         }
         break;
       }
-      case 'born':
+      case 'born': {
         v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
         v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
-        this.stepRabbit(dt, true);
+        // while P3 reads, Pip makes its way to where it will watch the big-and-small beat from
+        this.walkPip(dt, Story.SIZE_PIP_X * this.pipSideFor(actor));
         // Pip's introduction reads in the prologue before the menu
         const landed = this.rabbit.state === 'idle' && this.rabbit.y + PIP_EXTENT.height * v.rabbit.scale < 0.12;
         if ((landed && this.beatTime > 0.4) || this.beatTime > 2.5) this.sayOnce('P3');
-        // Pip's introduction reads in full before the hub
+        // Pip's introduction reads in full before the big-and-small beat
         const ready = (this.beatTime > 4.6 && this.rabbit.state === 'idle') || this.beatTime > 9;
-        if (((ready && this.linesIdle()) || this.beatTime > 16) && !this.pendingScene) {
-          this.progress.visits++;
-          this.requestScene('menu');
-        }
+        if (((ready && this.linesIdle()) || this.beatTime > 16) && !this.pendingScene) this.startSizeBeat(actor);
+        break;
+      }
+      case 'size':
+        this.updateSize(dt, model);
         break;
     }
+  }
+
+  // ------------------------------------------------- the big-and-small beat
+  // After P3 ("Pip is small, and the night is very large"): bring your hand
+  // near you and its shadow grows big and soft (P4); Pip ducks, ears flat,
+  // and shrinks back. Reach for the wall (P5) and the shadow is small and
+  // sharp again: Pip relaxes and hops up beside it. Then the hub. The hints
+  // (a growing or shrinking ghost hand, then CLOSER / FARTHER) come only after
+  // a pause; the assist (size-beat.ts) completes the beat regardless.
+
+  /** The big-and-small beat's logic (thresholds, hysteresis, assist). */
+  readonly bigSmall = new SizeBeat();
+  /** Pip watches from this far to one side of the stage's middle. */
+  static readonly SIZE_PIP_X = 0.42;
+  /** How far Pip leans back from a big shadow (stage units). */
+  static readonly SIZE_LEAN = 0.045;
+  /** Pip watches from this side (-1 left, +1 right) and faces the other way (toward your shadow). */
+  private pipSide = -1;
+  private pipLean = 0;
+  private pipHops = 0;
+  private sizeDone = 0;
+  private sizeGhost = 0;
+
+  /**
+   * Pip watches from the side away from your arm: a right hand's forearm comes
+   * in from the lower right (its big shadow would swallow Pip there).
+   */
+  private pipSideFor(actor: Actor | null): number {
+    return (actor ? actor.handedness : this.settings.dominant) === 'left' ? 1 : -1;
+  }
+
+  /** Pip hops toward stage x (along the floor) and stops within a hop of it. */
+  private walkPip(dt: number, x: number): void {
+    const r = this.rabbit;
+    const far = Math.abs(r.x - x) > 0.05;
+    if (far && r.state === 'idle') r.dir = x > r.x ? 1 : -1;
+    r.restTime = 0.16;
+    this.stepRabbit(dt, far);
+  }
+
+  private startSizeBeat(actor: Actor | null): void {
+    this.setBeat('size');
+    this.bigSmall.reset();
+    this.pipSide = this.pipSideFor(actor);
+    this.pipLean = 0;
+    this.pipHops = 0;
+    this.sizeDone = 0;
+    this.sizeGhost = 0;
+    this.say(COPY.P4);
+  }
+
+  private updateSize(dt: number, model: ShadowModel): void {
+    const v = this.view;
+    const r = this.rabbit;
+    const sb = this.bigSmall;
+    const gentle = this.settings.gentle;
+    v.light = 1;
+    v.dim = 1;
+    v.flame = 1;
+    v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
+    const actor = this.presentActor(model);
+    const ev = sb.update(dt, this.shadowSize(model), gentle);
+    const face = -this.pipSide;
+    if (ev.grew && !ev.assisted) {
+      // Pip ducks from the giant (a small yelp); the storyteller asks for it small again
+      this.emit('whimper', r.x, r.y);
+      this.sayOnce('P5');
+    }
+    if (ev.shrank || (ev.grew && ev.assisted)) {
+      // small again: Pip relaxes, springs up and hops over beside your shadow
+      if (!ev.assisted) {
+        v.sparkle = 1;
+        this.emit('roundComplete', r.x, r.y, 1);
+      }
+      r.bounce(4);
+      this.pipHops = this.hopsBeside(actor, face);
+    }
+    // ---- Pip: ducks and leans back from a big shadow (ears flat, trembling)
+    const scared = sb.big && sb.phase !== 'done';
+    const wary = sb.phase === 'shrink' && !scared;
+    r.hunch = approach(r.hunch, scared ? 1 : wary ? 0.35 : 0, scared ? 9 : 4, dt);
+    v.rabbit.tremble = approach(v.rabbit.tremble, scared ? 0.85 : wary ? 0.25 : 0, scared ? 6 : 2.5, dt);
+    if (r.state === 'idle') {
+      // leaning back: an eased shuffle away from the shadow, still facing it
+      const lean = approach(this.pipLean, scared ? 1 : 0, 6, dt);
+      r.x -= face * Story.SIZE_LEAN * (lean - this.pipLean);
+      this.pipLean = lean;
+    }
+    if (sb.phase === 'done') {
+      this.sizeDone += dt;
+      const hopping = this.pipHops > 0 && this.sizeDone < 2;
+      if (hopping && r.state === 'idle') r.dir = face as 1 | -1;
+      r.restTime = 0.12;
+      this.stepRabbit(dt, hopping);
+      if (r.events.hopped) this.pipHops--;
+      if (r.events.peering) this.pipHops = 0;
+    } else if (scared || r.state !== 'idle') {
+      this.stepRabbit(dt, false);
+    } else {
+      // to its watching spot (if it isn't there yet), then it faces your shadow
+      const spot = Story.SIZE_PIP_X * this.pipSide - face * Story.SIZE_LEAN * this.pipLean;
+      if (Math.abs(r.x - spot) > 0.05) this.walkPip(dt, spot);
+      else {
+        r.dir = face as 1 | -1;
+        this.stepRabbit(dt, false);
+      }
+    }
+    // ---- the hint, only after a pause: a ghost hand that grows (or shrinks)
+    // beside your shadow, fading out as each swell restarts
+    const hint = sb.phase !== 'done' && sb.stall > PROMPT_PICTOGRAM_AFTER;
+    this.sizeGhost = approach(this.sizeGhost, hint ? 1 : 0, 2.5, dt);
+    const u = (this.time * 0.45) % 1;
+    const swell = u * u * (3 - 2 * u);
+    v.ghost.pose = 'open';
+    v.ghost.s = 0.3 * face;
+    v.ghost.t = 0.06;
+    v.ghost.scale = sb.phase === 'shrink' ? 1.45 - 0.55 * swell : 0.95 + 0.55 * swell;
+    v.ghost.visible = 0.42 * this.sizeGhost * Math.sin(Math.PI * u);
+    this.ask(sb.phase !== 'done' && sb.stall > PROMPT_WORDS_AFTER ? (sb.phase === 'grow' ? COPY.CLOSER : COPY.FARTHER) : null);
+    v.progress = sb.phase === 'grow' ? 0 : sb.phase === 'shrink' ? 0.5 : 1;
+    // ...then the hub, once the storyteller is done and Pip has settled
+    const settled = this.sizeDone > 1.4 && r.state === 'idle' && (this.pipHops === 0 || this.sizeDone > 2);
+    if (sb.phase === 'done' && ((settled && this.linesIdle()) || this.sizeDone > 8) && !this.pendingScene) {
+      this.progress.visits++;
+      this.requestScene('menu');
+    }
+  }
+
+  /** Happy hops (0-2) toward your shadow that end beside it, never inside it. */
+  private hopsBeside(actor: Actor | null, face: number): number {
+    const r = this.rabbit;
+    const hop = r.hopLength;
+    let limit = r.x + face * 2 * hop;
+    if (actor) {
+      // the near edge of the hand's shadow, less Pip's front and a little air
+      const edge = face > 0 ? actor.handMinS : actor.handMaxS;
+      const stop = edge - face * (PIP_EXTENT.front * this.view.rabbit.scale + 0.04);
+      const overlapsPip = actor.handMinT < r.y + PIP_EXTENT.height * this.view.rabbit.scale + 0.03;
+      if (overlapsPip) limit = face > 0 ? Math.min(limit, stop) : Math.max(limit, stop);
+    }
+    return Math.max(0, Math.min(2, Math.floor((limit - r.x) * face / hop + 1e-6)));
   }
 
   private stepRabbit(dt: number, active: boolean): void {
