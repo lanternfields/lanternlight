@@ -144,3 +144,28 @@ describe('the fed crocodile', () => {
     expect(long / NIGHT_CROC_EXTENT.height).toBeGreaterThan(4);
   });
 });
+
+describe('the crocodile moves with your hand (Quest 2 "slightly laggy")', () => {
+  it('its head piece and eye stay on the gliding hand instead of trailing it', () => {
+    const { st, light, m } = setup();
+    const pose = { ...POSES.mouthOpen, thumbOppose: 0.6 };
+    const o = new CrocOverlay();
+    const eyeOffset = (x: number, frames: number, speed: number): [number, number] => {
+      let e: [number, number] | null = null;
+      for (let i = 0; i < frames; i++) {
+        const hand = makeHand(pose, { position: new V3(x + speed * (i / 72), 0.98, -0.42), roll: -90 });
+        m.build([createHandFrame('left'), hand], [], light, st, 1 / 72);
+        const a = m.actors[1];
+        o.update(1 / 72, m, a, 1, 0.6, i / 72, new Sink(), new Sink(), new Glows(), 0);
+        e = o.eye();
+        if (e) e = [e[0] - a.knuckleS, e[1] - a.knuckleT];
+      }
+      return e!;
+    };
+    // settled at rest, then gliding sideways at 30 cm/s (a brisk crocodile)
+    const rest = eyeOffset(-0.1, 72, 0);
+    const glide = eyeOffset(-0.1, 36, 0.3);
+    // the eye stays put on the head (a spring on the frame origin trailed ~0.1 stage units)
+    expect(Math.hypot(glide[0] - rest[0], glide[1] - rest[1])).toBeLessThan(0.012);
+  });
+});

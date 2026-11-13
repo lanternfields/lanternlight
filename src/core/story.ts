@@ -435,6 +435,10 @@ function approach(v: number, target: number, rate: number, dt: number): number {
   return v + (target - v) * (1 - Math.exp(-rate * dt));
 }
 
+/** Poses that make the rabbit (gentle mode accepts more); constants, so no array per frame. */
+const RABBIT_POSES: readonly PoseId[] = ['rabbit'];
+const RABBIT_POSES_GENTLE: readonly PoseId[] = ['rabbit', 'point', 'horns'];
+
 const PRESENT_ORDER_R = [1, 0, 3, 2];
 const PRESENT_ORDER_L = [0, 1, 2, 3];
 
@@ -1051,8 +1055,7 @@ export class Story {
         if (a.mouthClosed) return a; // trigger squeeze
         continue;
       }
-      const ok: PoseId[] = this.settings.gentle ? ['rabbit', 'point', 'horns'] : ['rabbit'];
-      if (ok.includes(a.pose)) return a;
+      if ((this.settings.gentle ? RABBIT_POSES_GENTLE : RABBIT_POSES).includes(a.pose)) return a;
     }
     return null;
   }

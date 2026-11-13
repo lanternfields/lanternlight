@@ -233,6 +233,8 @@ export class MouthDetector {
   open = false;
   /** Smoothed 0..1 openness for animation. */
   openness = 0;
+  /** This frame's edges (one object, reused every frame: no allocation per hand per frame). */
+  private readonly edges = { opened: false, closed: false };
   constructor(
     public openAt = 0.75,
     public closeAt = 0.42,
@@ -240,15 +242,16 @@ export class MouthDetector {
   update(aperture: number, dt: number): { opened: boolean; closed: boolean } {
     const target = clamp((aperture - this.closeAt) / (this.openAt - this.closeAt), 0, 1);
     this.openness += (target - this.openness) * (1 - Math.exp(-18 * dt));
-    let opened = false;
-    let closed = false;
+    const e = this.edges;
+    e.opened = false;
+    e.closed = false;
     if (!this.open && aperture >= this.openAt) {
       this.open = true;
-      opened = true;
+      e.opened = true;
     } else if (this.open && aperture <= this.closeAt) {
       this.open = false;
-      closed = true;
+      e.closed = true;
     }
-    return { opened, closed };
+    return e;
   }
 }

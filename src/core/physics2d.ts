@@ -47,22 +47,19 @@ export function capsuleColumn(
   if (t0 > t1) return false;
   const m = dy / dx;
   const k = (r * m) / Math.sqrt(1 + m * m);
-  const evalTop = (t: number): number => {
-    const u = x - ax - t * dx;
-    const s = r * r - u * u;
-    return ay + t * dy + Math.sqrt(s > 0 ? s : 0);
-  };
-  const evalBot = (t: number): number => {
-    const u = x - ax - t * dx;
-    const s = r * r - u * u;
-    return ay + t * dy - Math.sqrt(s > 0 ? s : 0);
-  };
-  const clampT = (t: number): number => (t < t0 ? t0 : t > t1 ? t1 : t);
   // Maximiser of the top boundary: u* = -k ; minimiser of the bottom: u* = +k.
-  const tTop = clampT((x - ax + k) / dx);
-  const tBot = clampT((x - ax - k) / dx);
-  out.hi = evalTop(tTop);
-  out.lo = evalBot(tBot);
+  // (inline, no closures: this runs for every capsule under every column the
+  // rabbit tests, many times a frame)
+  let tTop = (x - ax + k) / dx;
+  tTop = tTop < t0 ? t0 : tTop > t1 ? t1 : tTop;
+  let tBot = (x - ax - k) / dx;
+  tBot = tBot < t0 ? t0 : tBot > t1 ? t1 : tBot;
+  const uTop = x - ax - tTop * dx;
+  const sTop = r * r - uTop * uTop;
+  out.hi = ay + tTop * dy + Math.sqrt(sTop > 0 ? sTop : 0);
+  const uBot = x - ax - tBot * dx;
+  const sBot = r * r - uBot * uBot;
+  out.lo = ay + tBot * dy - Math.sqrt(sBot > 0 ? sBot : 0);
   return true;
 }
 

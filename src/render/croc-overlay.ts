@@ -10,12 +10,15 @@
  *  - a few big teeth, only while the jaw is open; they settle after a snap;
  *  - swallowed fireflies glow in the throat, inside the head behind the jaw.
  *
- * Everything hangs off ONE smoothed head frame, not off fingertips: its origin
- * is the knuckle line, its axis the snout direction, both on critically damped
- * springs, so tracking noise and finger wiggles never make the eye wander. The
- * eye sits at a fixed place in that frame (the upper back of the snout) and is
- * clamped inside the head's silhouette; edge offsets are measured on the real
- * shadow edge but each goes through its own spring.
+ * Everything hangs off ONE head frame, not off fingertips: its origin is the
+ * knuckle line, exactly where the shadow's knuckles are (it moves with the
+ * hand, never trailing it: a spring there lagged ~0.14 s behind a gliding
+ * hand), and its axis and size, the snout direction and length, are on
+ * critically damped springs, so tracking noise and finger wiggles never make
+ * the eye wander. The eye sits at a fixed place in that frame (the upper back
+ * of the snout), smoothed in the frame, and is clamped inside the head's
+ * silhouette; edge offsets are measured on the real shadow edge but each goes
+ * through its own spring.
  */
 import type { Actor, ShadowModel } from '../core/shadow-model.js';
 import { Spring, clamp01, easeOutBack, keyLoop } from '../core/ease.js';
@@ -56,9 +59,7 @@ const TEETH_OPEN = 0.3;
 const ARM_FADE: readonly [number, number] = [0.08, 0.95];
 
 export class CrocOverlay {
-  // the head frame (origin, snout angle, snout length, top-edge offsets)
-  private readonly ox = new Spring(0, 14, 1);
-  private readonly oy = new Spring(0, 14, 1);
+  // the head frame (snout angle, snout length, top-edge offsets; the origin is the knuckle itself)
   private readonly ang = new Spring(0, 11, 1);
   private readonly len = new Spring(0.23, 9, 1);
   private readonly top = new Spring(0.035, 7, 1);
@@ -66,10 +67,10 @@ export class CrocOverlay {
   /** +1/-1: which side of the snout axis is its top (away from the lower jaw); flips only when sure. */
   private side = 1;
   private sideVotes = 0;
-  // lower jaw (thumb) tip, smoothed
+  // lower jaw (thumb) tip relative to the knuckle, smoothed
   private readonly lx = new Spring(0, 14, 1);
   private readonly ly = new Spring(0, 14, 1);
-  // the drawn eye, smoothed once more
+  // the drawn eye relative to the knuckle, smoothed once more
   private readonly eyeX = new Spring(0, 18, 1);
   private readonly eyeY = new Spring(0, 18, 1);
   private readonly back = BACK_SCUTES.map(() => new Spring(0.03, 9, 1));
@@ -106,24 +107,22 @@ export class CrocOverlay {
     const rawDy = actor.upperT - actor.knuckleT;
     const rawLen = Math.hypot(rawDx, rawDy) || 1e-3;
     let rawAng = Math.atan2(rawDy, rawDx);
+    const ox = actor.knuckleS;
+    const oy = actor.knuckleT;
     if (!this.init) {
-      this.ox.snap(actor.knuckleS);
-      this.oy.snap(actor.knuckleT);
       this.ang.snap(rawAng);
       this.len.snap(rawLen);
-      this.lx.snap(actor.lowerS);
-      this.ly.snap(actor.lowerT);
+      this.lx.snap(actor.lowerS - ox);
+      this.ly.snap(actor.lowerT - oy);
     } else {
       // unwrap so the angle spring never spins the long way round
       while (rawAng - this.ang.value > Math.PI) rawAng -= Math.PI * 2;
       while (rawAng - this.ang.value < -Math.PI) rawAng += Math.PI * 2;
     }
-    const ox = this.ox.update(actor.knuckleS, dt);
-    const oy = this.oy.update(actor.knuckleT, dt);
     const a = this.ang.update(rawAng, dt);
     const len = Math.max(0.05, this.len.update(rawLen, dt));
-    const lx = this.lx.update(actor.lowerS, dt);
-    const ly = this.ly.update(actor.lowerT, dt);
+    const lx = ox + this.lx.update(actor.lowerS - ox, dt);
+    const ly = oy + this.ly.update(actor.lowerT - oy, dt);
     const dx = Math.cos(a);
     const dy = Math.sin(a);
     const k = len / 0.23; // overlay scale relative to a comfortably held hand
@@ -179,11 +178,11 @@ export class CrocOverlay {
     // at the back of the head, with the cut-out eye in it (and a blink)
     let [ex, ey] = at(0.1, topAt(0.1) + 0.003 * k);
     if (!this.init) {
-      this.eyeX.snap(ex);
-      this.eyeY.snap(ey);
+      this.eyeX.snap(ex - ox);
+      this.eyeY.snap(ey - oy);
     }
-    ex = this.eyeX.update(ex, dt);
-    ey = this.eyeY.update(ey, dt);
+    ex = ox + this.eyeX.update(ex - ox, dt);
+    ey = oy + this.eyeY.update(ey - oy, dt);
     details.pushRaw(ex - dx * 0.01 * k - px * 0.004 * k, ey - dy * 0.01 * k - py * 0.004 * k, ex + dx * 0.01 * k - px * 0.004 * k, ey + dy * 0.01 * k - py * 0.004 * k, 0.014 * k, SOFT, vis, 0.014 * k);
     const blink = keyLoop(time, 4.4, BLINK);
     holes.pushRaw(ex, ey, ex + dx * 0.003 * k, ey + dy * 0.003 * k, 0.0062 * k * blink, 0.002, vis);

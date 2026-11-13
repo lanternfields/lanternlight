@@ -224,6 +224,10 @@ function rotateByQuat(
   return out;
 }
 
+/** Actor preference orders (constants: no array per call). */
+const PRIMARY_ORDER_R: readonly number[] = [1, 0, 3, 2];
+const PRIMARY_ORDER_L: readonly number[] = [0, 1, 2, 3];
+
 /** Nominal shadow height (stage units) used for `sizeRatio`. */
 export const NOMINAL_SHADOW_HEIGHT = 0.46;
 
@@ -637,7 +641,7 @@ export class ShadowModel {
 
   /** The most prominent present actor (prefers the dominant hand). */
   primaryActor(dominant: 'left' | 'right' = 'right'): Actor | null {
-    const order = dominant === 'right' ? [1, 0, 3, 2] : [0, 1, 2, 3];
+    const order = dominant === 'right' ? PRIMARY_ORDER_R : PRIMARY_ORDER_L;
     for (const i of order) if (this.actors[i].present) return this.actors[i];
     return null;
   }
