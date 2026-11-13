@@ -39,12 +39,15 @@ table below.
 - **Your room's lights go down, and come back up.** The room dims like a theatre's house lights when
   the show starts; at the end, the bird carries the lantern's light away and your own room returns,
   lit by a soft amber glow.
-- **Distance is the mechanic.** Bring your hand back toward you and its shadow grows: that is how you
-  become a giant big enough to scare the Moon Wolf. Only a tracked 3D hand can do that.
-- **Your real hand stays in front.** On Quest 3 and 3S the app uses the headset's depth sensing to
-  draw the stage behind your real hand, so the hand reads as a backlit silhouette against the
-  lamplit wall, as a shadow-puppeteer's hand does. A switch in Settings turns this off if it ever
-  looks wrong in your room.
+- **Distance is the mechanic.** Pull your hand back toward you and its shadow grows over Pip; reach
+  for the wall and it shrinks again. The story teaches this in its first minute, and it is how you
+  later become a giant big enough to scare the Moon Wolf. Only a tracked 3D hand can do that.
+- **Your real hand stays in front.** The app writes your tracked hand's shape into the depth buffer,
+  so the stage is drawn behind your real hand and the hand reads as a silhouette against the lamplit
+  wall, as a shadow-puppeteer's hand does. This only runs on a headset, so the emulator video doesn't
+  show it, and we haven't seen it on a Quest 3. If it ever looks wrong in your room, untick "Keep my
+  real hand in front of the stage" under Settings on the start page (or open the link with
+  `?occluder=0`).
 - **A spark crosses your real room.** In the finale a spark leaves the real lantern on your table and
   arcs across the room to a paper bird perched on your finger's shadow.
 
@@ -54,6 +57,8 @@ There is no score and there are no fail states: it is a short wind-down, a bedti
 perform with your hands.
 
 1. **Prologue.** Reach into the light: there you are. Make two long ears: Pip springs off your fingers.
+   Pull your hand back and you grow, looming over Pip, who ducks; reach for the wall and you shrink,
+   and Pip hops back beside you.
 2. **I · The Hungry River.** Your hand becomes a crocodile. Open wide and snap at the fireflies: each
    one you swallow keeps glowing in your throat, until the full crocodile drifts off as the river's
    night-light. Pip watches from the reeds.
@@ -71,27 +76,33 @@ perform with your hands.
 
 - **About 5 s** from lighting the lantern to your own shadow on your wall (emulator run in the video).
 - **About 10 s** to your first creature: Pip springs off your two fingers.
-- **Zero tutorial text.** A faint ghost hand shows each shape; words appear only if you pause.
+- **No tutorial screens.** The storyteller's lines say what to do; a faint ghost hand shows each shape,
+  and extra hint words appear only if you pause.
+- **About 25 s** to growing over Pip and shrinking again: the distance mechanic, taught by the story.
 
 ## How we tested it
 
 - **In IWSDK's emulator (IWER):** scripted hand sequences play every tale and the finale; the video
   is one of those runs. A room sweep seats a player at 27 positions across simulated rooms: wherever
   the wall ahead can take the stage, it does, and every blocked seat (a window, a screen, furniture)
-  shows a prompt to try another wall. 180 automated tests.
-- **On a real headset:** one tester played the build on a Quest 2 (black-and-white passthrough, no
-  depth sensing). We have not tested on a Quest 3 or 3S.
+  shows a prompt to try another wall. 203 automated tests.
+- **On a real headset:** one tester played the build on a Quest 2 (black-and-white passthrough). We
+  have not tested on a Quest 3 or 3S. Their favourite part was the shadow growing and shrinking as
+  their hand moved, so the story now teaches that first. They also found it a little laggy on
+  Quest 2: the crocodile costume trailed the hand by about a quarter of a second, and now it doesn't.
 
 ## Built with
 
 - **Immersive Web SDK (IWSDK) 1.0.1**, WebXR `immersive-ar`, in the Meta Quest Browser: open a link,
   no install.
 - **Hand tracking** (25 joints per hand) drives the shadow model: the shadow is cast from your tracked
-  joints through a virtual lantern onto the wall, with a physically scaled soft edge. Controllers work
+  joints through a virtual light onto the wall, with a soft edge that sharpens a little as your hand
+  nears the wall. Controllers work
   too, as shadow puppets on sticks.
 - **Plane and mesh detection with semantic labels** (walls, tables, desks, windows, doors, screens),
   **room capture** from inside the session when there is no scan, and **hit-test** as a fallback.
-- **Depth-only hand occlusion**, so the virtual layers never cover your real hand.
+- **Hand occlusion from the tracked joints** (written to depth only), so on a headset the virtual
+  layers stay behind your real hand.
 - **Adaptive quality:** 90 Hz requested on Quest 3/3S, quality driven by missed vsyncs.
 - **Everything is generated at runtime:** paper-cut art, shaders and a procedural WebAudio
   soundtrack. No third-party art or audio.
