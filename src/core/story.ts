@@ -1161,8 +1161,12 @@ export class Story {
   readonly bigSmall = new SizeBeat();
   /** Pip watches from this far to one side of the stage's middle. */
   static readonly SIZE_PIP_X = 0.42;
-  /** How far Pip leans back from a big shadow (stage units). */
+  /** How far Pip shrinks back from a big shadow (stage units): at least this... */
   static readonly SIZE_LEAN = 0.045;
+  /** ...and up to this to keep clear of one that looms over it... */
+  static readonly SIZE_LEAN_MAX = 0.14;
+  /** ...but never past here (still in the light). */
+  static readonly SIZE_PIP_EDGE = 0.6;
   /** Pip watches from this side (-1 left, +1 right) and faces the other way (toward your shadow). */
   private pipSide = -1;
   private pipLean = 0;
@@ -1230,9 +1234,15 @@ export class Story {
     r.hunch = approach(r.hunch, scared ? 1 : wary ? 0.35 : 0, scared ? 9 : 4, dt);
     v.rabbit.tremble = approach(v.rabbit.tremble, scared ? 0.85 : wary ? 0.25 : 0, scared ? 6 : 2.5, dt);
     if (r.state === 'idle') {
-      // leaning back: an eased shuffle away from the shadow, still facing it
-      const lean = approach(this.pipLean, scared ? 1 : 0, 6, dt);
-      r.x -= face * Story.SIZE_LEAN * (lean - this.pipLean);
+      // shrinking back: an eased shuffle away from the shadow, still facing it,
+      // a little at least, and clear of it when the big shadow looms over Pip;
+      // Pip stays back, wary, until the shadow is small again
+      let want = scared ? Math.max(Story.SIZE_LEAN, this.pipLean) : sb.phase === 'grow' ? 0 : this.pipLean;
+      if (scared && actor) want = Math.max(want, this.pipLean + this.pipOverlap(actor, face));
+      const room = face > 0 ? r.x + Story.SIZE_PIP_EDGE : Story.SIZE_PIP_EDGE - r.x;
+      want = Math.min(want, Story.SIZE_LEAN_MAX, this.pipLean + Math.max(0, room));
+      const lean = approach(this.pipLean, want, 6, dt);
+      r.x -= face * (lean - this.pipLean);
       this.pipLean = lean;
     }
     if (sb.phase === 'done') {
@@ -1247,7 +1257,7 @@ export class Story {
       this.stepRabbit(dt, false);
     } else {
       // to its watching spot (if it isn't there yet), then it faces your shadow
-      const spot = Story.SIZE_PIP_X * this.pipSide - face * Story.SIZE_LEAN * this.pipLean;
+      const spot = Story.SIZE_PIP_X * this.pipSide - face * this.pipLean;
       if (Math.abs(r.x - spot) > 0.05) this.walkPip(dt, spot);
       else {
         r.dir = face as 1 | -1;
@@ -1273,6 +1283,19 @@ export class Story {
       this.progress.visits++;
       this.requestScene('menu');
     }
+  }
+
+  /**
+   * How far Pip's nose reaches past a clear line just short of your hand's
+   * shadow (> 0: it is under it), when the hand is low enough to loom over Pip.
+   */
+  private pipOverlap(actor: Actor, face: number): number {
+    const r = this.rabbit;
+    const k = this.view.rabbit.scale;
+    if (actor.handMinT > r.y + PIP_EXTENT.height * k + 0.03) return 0;
+    const edge = face > 0 ? actor.handMinS : actor.handMaxS;
+    const nose = r.x + face * PIP_EXTENT.front * k;
+    return Math.max(0, (nose - (edge - face * 0.03)) * face);
   }
 
   /** Happy hops (0-2) toward your shadow that end beside it, never inside it. */

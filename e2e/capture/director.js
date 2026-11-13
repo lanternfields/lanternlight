@@ -381,7 +381,7 @@
 
   // ------------------------------------------------------- choreography kit
   /** Where the big-and-small beat's shadow sits: a little right of centre, clear of Pip on the left. */
-  const SIZE_SHADOW = [0.14, 0.04];
+  const SIZE_SHADOW = [0.2, 0.05];
   const S = () => app().story;
   function* wait(sec) {
     let t = 0;

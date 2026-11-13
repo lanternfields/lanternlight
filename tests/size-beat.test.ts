@@ -327,6 +327,22 @@ describe('size beat: in the prologue', () => {
     expect(story.rabbit.x).toBeGreaterThan(x0 - 0.01);
   });
 
+  it('a big shadow that looms over Pip: Pip shrinks back clear of it, staying in the light', () => {
+    const { story, model } = atSizeBeat();
+    step(story, model, 3.2, 1.0);
+    // the big hand's thumb reaches out over Pip's head (low enough to loom over it)
+    for (let i = 0; i < 1.5 * 72; i++) {
+      shadow(model, 1.5);
+      model.actors[1].handMinS = -0.36;
+      model.actors[1].handMinT = -0.2;
+      story.update(DT, model);
+    }
+    const nose = story.rabbit.x + PIP_EXTENT.front;
+    expect(nose).toBeLessThan(-0.36 - 0.02);
+    expect(story.rabbit.x).toBeGreaterThanOrEqual(-Story.SIZE_PIP_EDGE - 1e-6);
+    expect(story.rabbit.dir).toBe(1);
+  });
+
   it('a competent player gets through it in about 8-12 s, with no hint shown', () => {
     const { story, model } = atSizeBeat();
     let t = 0;
