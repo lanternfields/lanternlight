@@ -125,9 +125,11 @@ export class SizeBeat {
     this.held = goal ? this.held + dt : 0;
     if (!goal) this.stall += dt;
     else this.stall = 0;
-    const assist = this.phaseTime >= this.assistAfter(gentle);
+    // the assist only steps in while the goal isn't met: a shadow that is big
+    // (or small) right now finishes its hold and counts as the player's own
+    const assist = !goal && this.phaseTime >= this.assistAfter(gentle);
     if (this.held >= SIZE_HOLD || assist) {
-      if (assist && this.held < SIZE_HOLD) {
+      if (assist) {
         ev.assisted = true;
         this.assists++;
       }

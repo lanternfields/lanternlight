@@ -1038,14 +1038,18 @@ export class Story {
   }
 
   /**
-   * The shadow's size for the prologue's big-and-small beat: the biggest hand
-   * or puppet in the light (no two-hand bonus: the motion is what counts), or
-   * null when none is.
+   * The shadow's size for the prologue's big-and-small beat, over the hands
+   * and puppets in the light (no two-hand bonus: the motion is what counts):
+   * the biggest one's, or with `smallest` the smallest one's (so a second
+   * hand left near you never blocks the shrink). Null when none is in the light.
    */
-  shadowSize(model: ShadowModel): number | null {
-    let best = -1;
-    for (const a of model.actors) if (a.present && this.actorInPool(a)) best = Math.max(best, a.sizeRatio);
-    return best < 0 ? null : best;
+  shadowSize(model: ShadowModel, smallest = false): number | null {
+    let best = NaN;
+    for (const a of model.actors) {
+      if (!a.present || !this.actorInPool(a)) continue;
+      if (Number.isNaN(best) || (smallest ? a.sizeRatio < best : a.sizeRatio > best)) best = a.sizeRatio;
+    }
+    return Number.isNaN(best) ? null : best;
   }
 
   private rabbitPoseSeen(model: ShadowModel): Actor | null {
@@ -1126,6 +1130,9 @@ export class Story {
           this.ask(null);
           // (P3 waits for Pip to land: Pip springs off your fingers, maybe through the ribbon's band)
           this.discover('rabbit');
+          // the side Pip will watch the big-and-small beat from, chosen once (from
+          // the hand that made it): a hand drifting about never turns Pip back and forth
+          this.pipSide = this.pipSideFor(from);
           this.setBeat('born');
         }
         break;
@@ -1134,13 +1141,13 @@ export class Story {
         v.ghost.visible = approach(v.ghost.visible, 0, 5, dt);
         v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
         // while P3 reads, Pip makes its way to where it will watch the big-and-small beat from
-        this.walkPip(dt, Story.SIZE_PIP_X * this.pipSideFor(actor));
+        this.walkPip(dt, Story.SIZE_PIP_X * this.pipSide);
         // Pip's introduction reads in the prologue before the menu
         const landed = this.rabbit.state === 'idle' && this.rabbit.y + PIP_EXTENT.height * v.rabbit.scale < 0.12;
         if ((landed && this.beatTime > 0.4) || this.beatTime > 2.5) this.sayOnce('P3');
         // Pip's introduction reads in full before the big-and-small beat
         const ready = (this.beatTime > 4.6 && this.rabbit.state === 'idle') || this.beatTime > 9;
-        if (((ready && this.linesIdle()) || this.beatTime > 16) && !this.pendingScene) this.startSizeBeat(actor);
+        if (((ready && this.linesIdle()) || this.beatTime > 16) && !this.pendingScene) this.startSizeBeat();
         break;
       }
       case 'size':
@@ -1150,12 +1157,13 @@ export class Story {
   }
 
   // ------------------------------------------------- the big-and-small beat
-  // After P3 ("Pip is small, and the night is very large"): bring your hand
-  // near you and its shadow grows big and soft (P4); Pip ducks, ears flat,
-  // and shrinks back. Reach for the wall (P5) and the shadow is small and
-  // sharp again: Pip relaxes and hops up beside it. Then the hub. The hints
-  // (a growing or shrinking ghost hand, then CLOSER / FARTHER) come only after
-  // a pause; the assist (size-beat.ts) completes the beat regardless.
+  // After P3 ("Pip is small, and the night is very large"): pull your hand
+  // back (P4) and its shadow grows; Pip ducks, ears flat, and shrinks back.
+  // Reach for the wall (P5) and it shrinks again, its edge a little sharper:
+  // Pip relaxes and hops up beside it. Then the hub. The hints (a growing or
+  // shrinking ghost hand, then CLOSER / FARTHER, or REACH with no hand in the
+  // light) come only after a pause; the assist (size-beat.ts) completes the
+  // beat regardless.
 
   /** The big-and-small beat's logic (thresholds, hysteresis, assist). */
   readonly bigSmall = new SizeBeat();
@@ -1167,7 +1175,7 @@ export class Story {
   static readonly SIZE_LEAN_MAX = 0.14;
   /** ...but never past here (still in the light). */
   static readonly SIZE_PIP_EDGE = 0.6;
-  /** Pip watches from this side (-1 left, +1 right) and faces the other way (toward your shadow). */
+  /** Pip watches from this side (-1 left, +1 right; latched when it is born) and faces the other way (toward your shadow). */
   private pipSide = -1;
   private pipLean = 0;
   private pipHops = 0;
@@ -1191,10 +1199,9 @@ export class Story {
     this.stepRabbit(dt, far);
   }
 
-  private startSizeBeat(actor: Actor | null): void {
+  private startSizeBeat(): void {
     this.setBeat('size');
     this.bigSmall.reset();
-    this.pipSide = this.pipSideFor(actor);
     this.pipLean = 0;
     this.pipHops = 0;
     this.sizeDone = 0;
@@ -1212,7 +1219,7 @@ export class Story {
     v.flame = 1;
     v.rabbit.visible = approach(v.rabbit.visible, 1, 6, dt);
     const actor = this.presentActor(model);
-    const ev = sb.update(dt, this.shadowSize(model), gentle);
+    const ev = sb.update(dt, this.shadowSize(model, sb.phase === 'shrink'), gentle);
     const face = -this.pipSide;
     if (ev.grew && !ev.assisted) {
       // Pip ducks from the giant (a small yelp); the storyteller asks for it small again
@@ -1277,7 +1284,8 @@ export class Story {
     v.ghost.t = 0.06;
     v.ghost.scale = sb.phase === 'shrink' ? 1.45 - 0.55 * swell : 0.95 + 0.55 * swell;
     v.ghost.visible = 0.42 * this.sizeGhost * Math.sin(Math.PI * u);
-    this.ask(sb.phase !== 'done' && sb.stall > PROMPT_WORDS_AFTER ? (sb.phase === 'grow' ? COPY.CLOSER : COPY.FARTHER) : null);
+    const words = !actor ? COPY.REACH : sb.phase === 'grow' ? COPY.CLOSER : COPY.FARTHER;
+    this.ask(sb.phase !== 'done' && sb.stall > PROMPT_WORDS_AFTER ? words : null);
     v.progress = sb.phase === 'grow' ? 0 : sb.phase === 'shrink' ? 0.5 : 1;
     // ...then the hub, once the storyteller is done and Pip has settled
     const settled = this.sizeDone > 1.4 && r.state === 'idle' && (this.pipHops === 0 || this.sizeDone > 2);

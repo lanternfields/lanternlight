@@ -74,7 +74,7 @@ describe('size beat: the thresholds come from the real range of sizeRatio', () =
     }
   });
 
-  it('the shadow is big and soft near you, small and sharp by the wall (the comfortable hold just under the cap)', () => {
+  it('the edge sharpens toward the wall; near you it softens only up to the legibility cap', () => {
     for (const wall of [0.8, 1.5, 2.2, 3.2]) {
       const near = modelAt(wall, 0.2).penumbra;
       const rest = modelAt(wall, 0).penumbra;
@@ -180,6 +180,28 @@ describe('size beat: logic', () => {
     expect(feed(sb, SIZE_ASSIST[1] + 0.1, null, true).assisted).toBe(1);
   });
 
+  it("big just as the assist comes due: the hold completes as the player's own, and the shrink is still asked for", () => {
+    const sb = new SizeBeat();
+    sb.reset();
+    feed(sb, SIZE_ASSIST[0] - 0.1, 1.0);
+    // big 0.1 s before the assist: the hold (0.3 s) runs past it
+    const n = feed(sb, 0.15, 1.4);
+    expect(n.grew).toBe(0);
+    expect(n.assisted).toBe(0);
+    const m = feed(sb, 0.3, 1.4);
+    expect(m.grew).toBe(1);
+    expect(m.assisted).toBe(0);
+    expect(sb.grewAssisted).toBe(false);
+    expect(sb.phase).toBe('shrink');
+    // ...and the same for small at the end of the shrink phase
+    feed(sb, SIZE_ASSIST[0] - 0.1 - sb.phaseTime, 1.05);
+    expect(feed(sb, 0.15, 0.85).shrank).toBe(0);
+    const k = feed(sb, 0.3, 0.85);
+    expect(k.shrank).toBe(1);
+    expect(k.assisted).toBe(0);
+    expect(sb.assists).toBe(0);
+  });
+
   it('it grew but never shrinks: the assist completes the shrink too', () => {
     const sb = new SizeBeat();
     sb.reset();
@@ -219,38 +241,52 @@ describe('size beat: logic', () => {
 });
 
 describe('size beat: in the prologue', () => {
-  /** A hand's shadow at the stage's middle with a given size (as story.test.ts's FakeHand). */
-  function shadow(model: ShadowModel, size: number | null): void {
-    const a = model.actors[1];
+  /**
+   * A hand's shadow with a given size (as story.test.ts's FakeHand): the right
+   * hand (actor 1) by default, at the stage's middle, or the left (actor 0), at
+   * stage s = cs. Each hand has its own capsule slot; an absent hand's is empty.
+   */
+  function shadow(model: ShadowModel, size: number | null, idx = 1, cs = 0): void {
+    const a = model.actors[idx];
+    const c = model.capsules[idx];
+    model.capsuleCount = 2;
+    c.actor = idx;
+    // the other hand, when it is not in the light, has an empty slot
+    if (!model.actors[1 - idx].present) {
+      const o = model.capsules[1 - idx];
+      o.actor = 1 - idx;
+      o.ax = o.bx = 9;
+      o.ay = o.by = 9;
+      o.r = o.rb = 0;
+    }
     if (size === null) {
       a.present = false;
       a.presentTime = 0;
       a.capsuleCount = 0;
-      model.capsuleCount = 0;
+      c.ax = c.bx = 9;
+      c.ay = c.by = 9;
+      c.r = c.rb = 0;
       return;
     }
     a.present = true;
     a.presentTime += DT;
     a.pose = 'open';
-    a.capsuleStart = 0;
+    a.capsuleStart = idx;
     a.capsuleCount = 1;
-    model.capsuleCount = 1;
-    const c = model.capsules[0];
     const h = 0.2 * size;
-    c.ax = 0;
+    c.ax = cs;
     c.ay = 0.05 - h / 2;
-    c.bx = 0;
+    c.bx = cs;
     c.by = 0.05 + h / 2;
-    c.r = 0.1 * size;
-    c.actor = 1;
+    c.r = c.rb = 0.1 * size;
     a.sizeRatio = size;
-    a.minS = a.handMinS = -0.1 * size;
-    a.maxS = a.handMaxS = 0.1 * size;
+    a.minS = a.handMinS = cs - 0.1 * size;
+    a.maxS = a.handMaxS = cs + 0.1 * size;
     a.minT = a.handMinT = 0.05 - h / 2 - c.r;
     a.maxT = a.handMaxT = 0.05 + h / 2 + c.r;
-    a.centroidS = 0;
+    a.centroidS = cs;
     a.centroidT = 0.05;
-    a.tipS = 0;
+    a.tipS = cs;
     a.tipT = a.maxT;
   }
 
@@ -384,23 +420,87 @@ describe('size beat: in the prologue', () => {
     expect(story.scene === 'menu' || story['pendingScene'] === 'menu').toBe(true);
   });
 
-  it('no hand at all: the show goes on to the hub (no fail state)', () => {
+  it('no hand at all: the hint asks for a hand, and the show goes on to the hub (no fail state)', () => {
     const { story, model } = atSizeBeat();
-    step(story, model, SIZE_ASSIST[0] + 9, null);
+    const prompts = new Set<string>();
+    step(story, model, SIZE_ASSIST[0] + 9, null, () => {
+      if (story.view.text.prompt) prompts.add(story.view.text.prompt);
+    });
+    expect(prompts.has(COPY.REACH[0])).toBe(true);
+    expect(prompts.has(COPY.CLOSER[0])).toBe(false);
     expect(story.scene === 'menu' || story['pendingScene'] === 'menu').toBe(true);
     expect(story.bigSmall.grewAssisted).toBe(true);
   });
 
-  it('a left hand: Pip watches from the right', () => {
-    const story = new Story({ ...DEFAULT_STORY_SETTINGS, dominant: 'left' });
-    const model = new ShadowModel();
+  /** Plays the intro to the big-and-small beat with hand idx making the rabbit, then during() each frame of 'born'. */
+  function introWith(story: Story, model: ShadowModel, idx: number, during?: () => void): void {
     let i = 0;
     while (story.beat !== 'size' && i++ < 72 * 60) {
+      shadow(model, null, 1 - idx);
+      if (story.beat === 'wave' || story.beat === 'play') shadow(model, 1, idx);
+      else if (story.beat === 'rabbitHint') {
+        shadow(model, 1, idx);
+        model.actors[idx].pose = 'rabbit';
+      } else {
+        shadow(model, null, idx);
+        during?.();
+      }
       story.update(DT, model);
     }
     expect(story.beat).toBe('size');
+  }
+
+  it('a left hand (with the default right-handed setting): Pip watches from the right', () => {
+    const story = new Story(DEFAULT_STORY_SETTINGS);
+    const model = new ShadowModel();
+    introWith(story, model, 0);
+    expect(story.stats.rabbitBirths).toBe(1);
     step(story, model, 4, null);
     expect(story.rabbit.x).toBeGreaterThan(0.3);
     expect(story.rabbit.dir).toBe(-1);
+  });
+
+  it("Pip's side is chosen once, from the hand that made it: a hand drifting about never turns it back and forth", () => {
+    const story = new Story(DEFAULT_STORY_SETTINGS);
+    const model = new ShadowModel();
+    let flips = 0;
+    let dir = 0;
+    let t = 0;
+    // the right hand makes the rabbit; then, while P3 reads, the left and the
+    // right hand take turns in the light (each for 0.4 s)
+    introWith(story, model, 1, () => {
+      t += DT;
+      const left = Math.floor(t / 0.4) % 2 === 0;
+      shadow(model, left ? 1 : null, 0, -0.1);
+      shadow(model, left ? null : 1, 1, 0.1);
+      if (story.rabbit.state === 'idle') {
+        if (dir && story.rabbit.dir !== dir) flips++;
+        dir = story.rabbit.dir;
+      }
+    });
+    step(story, model, 3, null);
+    expect(story.rabbit.x).toBeLessThan(-0.3);
+    expect(flips).toBeLessThanOrEqual(1);
+  });
+
+  it('a second hand left near you never blocks the shrink', () => {
+    const { story, model } = atSizeBeat();
+    const both = (left: number, right: number) => () => {
+      shadow(model, left, 0, -0.05);
+      shadow(model, right, 1, 0.2);
+    };
+    const run = (seconds: number, f: () => void): void => {
+      for (let i = 0; i < Math.round(seconds * 72); i++) {
+        f();
+        story.update(DT, model);
+      }
+    };
+    run(3, both(1.0, 1.0));
+    run(1, both(1.5, 1.5));
+    expect(story.bigSmall.phase).toBe('shrink');
+    // the left hand stays near you; the right reaches for the wall
+    run(1, both(1.5, 0.85));
+    expect(story.bigSmall.phase).toBe('done');
+    expect(story.bigSmall.assists).toBe(0);
   });
 });
